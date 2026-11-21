@@ -144,11 +144,34 @@
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
 
+            <!-- Merged to Parent / Separate Status Pill Badge -->
+            <TextView
+                android:id="@+id/tvItemMergeBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/status_paid_bg"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:paddingStart="8dp"
+                android:paddingTop="2dp"
+                android:paddingEnd="8dp"
+                android:paddingBottom="2dp"
+                android:singleLine="true"
+                android:text="Merged to Parent"
+                android:textColor="@color/status_paid_green"
+                android:textSize="11sp"
+                android:textStyle="bold"
+                android:visibility="gone"
+                app:drawableStartCompat="@drawable/ic_merge_type"
+                app:drawableTint="@color/status_paid_green" />
+
             <TextView
                 android:id="@+id/tvItemCreatedDate"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="4dp"
                 android:ellipsize="end"
                 android:fontFeatureSettings="tnum"
                 android:maxLines="1"

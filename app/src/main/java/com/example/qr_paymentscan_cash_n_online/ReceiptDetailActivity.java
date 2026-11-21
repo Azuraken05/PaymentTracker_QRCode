@@ -10,6 +10,7 @@ import android.widget.ImageButton;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 import androidx.activity.EdgeToEdge;
 import androidx.appcompat.app.AlertDialog;
@@ -27,6 +28,7 @@ import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
@@ -75,6 +77,8 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
 
     private MaterialCardView cardReceiptGcashProof;
     private ImageView ivReceiptProofThumbnail;
+    private TextView tvReceiptProofStatus;
+    private MaterialButton btnRetryProofUpload;
     private MaterialButton btnEditReceipt;
     private MaterialButton btnVoidPayment;
     private TextView tvReceiptEditedBadge;
@@ -135,6 +139,8 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
 
         cardReceiptGcashProof = findViewById(R.id.cardReceiptGcashProof);
         ivReceiptProofThumbnail = findViewById(R.id.ivReceiptProofThumbnail);
+        tvReceiptProofStatus = findViewById(R.id.tvReceiptProofStatus);
+        btnRetryProofUpload = findViewById(R.id.btnRetryProofUpload);
 
         btnBack.setOnClickListener(v -> finish());
         btnSaveReceiptToGallery.setOnClickListener(v -> saveReceiptImage(false));
@@ -245,17 +251,70 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         String displayProofPath = payment.proofImagePath;
         String displayProofUrl = payment.proofImageUrl != null ? payment.proofImageUrl : payment.remoteProofUrl;
 
-        if (payment.isGcash() && (displayProofPath != null || displayProofUrl != null)) {
+        boolean hasCloudUrl = displayProofUrl != null && displayProofUrl.startsWith("http");
+        boolean hasLocalFile = displayProofPath != null && new File(displayProofPath).exists();
+
+        if (payment.isGcash() && (hasCloudUrl || hasLocalFile || (displayProofPath != null && !displayProofPath.trim().isEmpty()))) {
             cardReceiptGcashProof.setVisibility(View.VISIBLE);
-            if (displayProofPath != null && new File(displayProofPath).exists()) {
+            if (hasCloudUrl) {
+                // Load cloud URL first for other users and cross-device sync
+                Glide.with(this).load(displayProofUrl).centerCrop().into(ivReceiptProofThumbnail);
+                cardReceiptGcashProof.setOnClickListener(v -> showFullProofDialog(null, displayProofUrl));
+                if (tvReceiptProofStatus != null) {
+                    tvReceiptProofStatus.setVisibility(View.GONE);
+                }
+                if (btnRetryProofUpload != null) {
+                    btnRetryProofUpload.setVisibility(View.GONE);
+                }
+            } else if (hasLocalFile) {
                 File proofFile = new File(displayProofPath);
                 Glide.with(this).load(proofFile).centerCrop().into(ivReceiptProofThumbnail);
                 cardReceiptGcashProof.setOnClickListener(v -> showFullProofDialog(proofFile, null));
-            } else if (displayProofUrl != null && !displayProofUrl.trim().isEmpty()) {
-                Glide.with(this).load(displayProofUrl).centerCrop().into(ivReceiptProofThumbnail);
-                cardReceiptGcashProof.setOnClickListener(v -> showFullProofDialog(null, displayProofUrl));
+
+                boolean canUpload = UserSessionManager.getInstance(this).canCreateOrEditRecords();
+                if (tvReceiptProofStatus != null) {
+                    tvReceiptProofStatus.setVisibility(View.VISIBLE);
+                    tvReceiptProofStatus.setText("Pending Cloudinary upload");
+                }
+                if (btnRetryProofUpload != null) {
+                    btnRetryProofUpload.setVisibility(canUpload ? View.VISIBLE : View.GONE);
+                    btnRetryProofUpload.setOnClickListener(v -> {
+                        btnRetryProofUpload.setEnabled(false);
+                        Toast.makeText(this, "Uploading proof photo to Cloudinary...", Toast.LENGTH_SHORT).show();
+                        CloudImageStorageManager.uploadProofImage(this, payment, new CloudImageStorageManager.UploadCallback() {
+                            @Override
+                            public void onSuccess(String secureUrl) {
+                                runOnUiThread(() -> {
+                                    btnRetryProofUpload.setEnabled(true);
+                                    btnRetryProofUpload.setVisibility(View.GONE);
+                                    if (tvReceiptProofStatus != null) {
+                                        tvReceiptProofStatus.setVisibility(View.GONE);
+                                    }
+                                    Toast.makeText(ReceiptDetailActivity.this, "Proof photo uploaded successfully!", Toast.LENGTH_SHORT).show();
+                                });
+                            }
+
+                            @Override
+                            public void onFailure(String errorMessage) {
+                                runOnUiThread(() -> {
+                                    btnRetryProofUpload.setEnabled(true);
+                                    Toast.makeText(ReceiptDetailActivity.this, "Upload failed: " + errorMessage, Toast.LENGTH_LONG).show();
+                                });
+                            }
+                        });
+                    });
+                }
             } else {
-                cardReceiptGcashProof.setVisibility(View.GONE);
+                // Proof attached on another device but not uploaded to cloud yet
+                ivReceiptProofThumbnail.setImageResource(R.drawable.ic_image);
+                cardReceiptGcashProof.setOnClickListener(null);
+                if (tvReceiptProofStatus != null) {
+                    tvReceiptProofStatus.setVisibility(View.VISIBLE);
+                    tvReceiptProofStatus.setText("Waiting for collector's device to finish uploading proof photo.");
+                }
+                if (btnRetryProofUpload != null) {
+                    btnRetryProofUpload.setVisibility(View.GONE);
+                }
             }
         } else {
             cardReceiptGcashProof.setVisibility(View.GONE);

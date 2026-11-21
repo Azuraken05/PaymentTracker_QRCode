@@ -420,6 +420,7 @@ public final class FirebaseSyncManager {
                 doc.put("createdAt", s.createdAt);
                 doc.put("parentFolderId", s.parentFolderId);
                 doc.put("targetFeeAmount", s.targetFeeAmount);
+                doc.put("mergeGrossToParent", s.mergeGrossToParent);
                 doc.put("updatedAt", now);
 
                 Tasks.await(
@@ -482,8 +483,12 @@ public final class FirebaseSyncManager {
                 doc.put("amount", p.amount);
                 doc.put("paymentMethod", p.paymentMethod);
                 doc.put("gcashReferenceNo", p.gcashReferenceNo);
-                doc.put("remoteProofUrl", remoteProofUrl);
-                doc.put("proofImageUrl", p.proofImageUrl);
+                if (remoteProofUrl != null && !remoteProofUrl.trim().isEmpty()) {
+                    doc.put("remoteProofUrl", remoteProofUrl);
+                }
+                if (p.proofImageUrl != null && !p.proofImageUrl.trim().isEmpty()) {
+                    doc.put("proofImageUrl", p.proofImageUrl);
+                }
                 doc.put("lastEditedByName", p.lastEditedByName);
                 doc.put("lastEditedAt", p.lastEditedAt);
                 doc.put("status", p.status);

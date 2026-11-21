@@ -8,6 +8,8 @@ import android.widget.ImageButton;
 import android.widget.TextView;
 
 import androidx.annotation.NonNull;
+import androidx.core.content.ContextCompat;
+import androidx.core.widget.TextViewCompat;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.example.qr_paymentscan_cash_n_online.R;
@@ -91,6 +93,33 @@ public class SectionAdapter extends RecyclerView.Adapter<SectionAdapter.SectionV
         holder.tvValidCount.setText(totalReceipts + (totalReceipts == 1 ? " Receipt" : " Receipts"));
         holder.tvCreatedDate.setText(CurrencyFormatter.formatShortDate(item.createdAt));
 
+        if (item.parentFolderId != null) {
+            holder.tvItemMergeBadge.setVisibility(View.VISIBLE);
+            if (item.mergeGrossToParent) {
+                holder.tvItemMergeBadge.setText("Merged to Parent");
+                holder.tvItemMergeBadge.setTextColor(ContextCompat.getColor(context, R.color.status_paid_green));
+                holder.tvItemMergeBadge.setBackgroundTintList(
+                        ContextCompat.getColorStateList(context, R.color.status_paid_bg)
+                );
+                TextViewCompat.setCompoundDrawableTintList(
+                        holder.tvItemMergeBadge,
+                        ContextCompat.getColorStateList(context, R.color.status_paid_green)
+                );
+            } else {
+                holder.tvItemMergeBadge.setText("Separate");
+                holder.tvItemMergeBadge.setTextColor(ContextCompat.getColor(context, R.color.text_secondary));
+                holder.tvItemMergeBadge.setBackgroundTintList(
+                        ContextCompat.getColorStateList(context, R.color.surface_variant)
+                );
+                TextViewCompat.setCompoundDrawableTintList(
+                        holder.tvItemMergeBadge,
+                        ContextCompat.getColorStateList(context, R.color.text_secondary)
+                );
+            }
+        } else {
+            holder.tvItemMergeBadge.setVisibility(View.GONE);
+        }
+
         holder.itemView.setOnClickListener(v -> {
             if (clickListener != null) {
                 clickListener.onSectionClicked(item);
@@ -124,6 +153,7 @@ public class SectionAdapter extends RecyclerView.Adapter<SectionAdapter.SectionV
         final TextView tvDesc;
         final TextView tvSubfolderCount;
         final TextView tvValidCount;
+        final TextView tvItemMergeBadge;
         final TextView tvCreatedDate;
         final ImageButton btnRename;
         final ImageButton btnDelete;
@@ -134,6 +164,7 @@ public class SectionAdapter extends RecyclerView.Adapter<SectionAdapter.SectionV
             tvDesc = itemView.findViewById(R.id.tvItemSectionDesc);
             tvSubfolderCount = itemView.findViewById(R.id.tvItemSubfolderCount);
             tvValidCount = itemView.findViewById(R.id.tvItemValidCount);
+            tvItemMergeBadge = itemView.findViewById(R.id.tvItemMergeBadge);
             tvCreatedDate = itemView.findViewById(R.id.tvItemCreatedDate);
             btnRename = itemView.findViewById(R.id.btnRenameFolderItem);
             btnDelete = itemView.findViewById(R.id.btnDeleteFolderItem);

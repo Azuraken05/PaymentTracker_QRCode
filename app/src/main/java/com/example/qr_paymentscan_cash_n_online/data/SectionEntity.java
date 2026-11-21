@@ -45,14 +45,17 @@ public class SectionEntity {
     @ColumnInfo(name = "room_id")
     public String roomId;
 
+    @ColumnInfo(name = "merge_gross_to_parent", defaultValue = "0")
+    public boolean mergeGrossToParent;
+
     @Ignore
     public SectionEntity(@NonNull String sectionName, String description, long createdAt) {
-        this(sectionName, description, createdAt, null, 0.0, SYNC_PENDING, createdAt, null);
+        this(sectionName, description, createdAt, null, 0.0, SYNC_PENDING, createdAt, null, false);
     }
 
     @Ignore
     public SectionEntity(@NonNull String sectionName, String description, long createdAt, Long parentFolderId) {
-        this(sectionName, description, createdAt, parentFolderId, 0.0, SYNC_PENDING, createdAt, null);
+        this(sectionName, description, createdAt, parentFolderId, 0.0, SYNC_PENDING, createdAt, null, false);
     }
 
     @Ignore
@@ -65,9 +68,10 @@ public class SectionEntity {
             @NonNull String syncStatus,
             long updatedAt
     ) {
-        this(sectionName, description, createdAt, parentFolderId, targetFeeAmount, syncStatus, updatedAt, null);
+        this(sectionName, description, createdAt, parentFolderId, targetFeeAmount, syncStatus, updatedAt, null, false);
     }
 
+    @Ignore
     public SectionEntity(
             @NonNull String sectionName,
             String description,
@@ -78,6 +82,20 @@ public class SectionEntity {
             long updatedAt,
             String roomId
     ) {
+        this(sectionName, description, createdAt, parentFolderId, targetFeeAmount, syncStatus, updatedAt, roomId, false);
+    }
+
+    public SectionEntity(
+            @NonNull String sectionName,
+            String description,
+            long createdAt,
+            Long parentFolderId,
+            double targetFeeAmount,
+            @NonNull String syncStatus,
+            long updatedAt,
+            String roomId,
+            boolean mergeGrossToParent
+    ) {
         this.sectionName = sectionName;
         this.description = description != null ? description : "";
         this.createdAt = createdAt;
@@ -86,5 +104,18 @@ public class SectionEntity {
         this.syncStatus = syncStatus;
         this.updatedAt = updatedAt;
         this.roomId = roomId;
+        this.mergeGrossToParent = mergeGrossToParent;
+    }
+
+    public boolean isSubfolder() {
+        return parentFolderId != null;
+    }
+
+    public boolean isMergeGrossToParent() {
+        return mergeGrossToParent;
+    }
+
+    public void setMergeGrossToParent(boolean mergeGrossToParent) {
+        this.mergeGrossToParent = mergeGrossToParent;
     }
 }

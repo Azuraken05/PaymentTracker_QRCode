@@ -29,6 +29,7 @@ import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
@@ -613,6 +614,9 @@ public class AddPaymentActivity extends BaseThemedActivity {
                     @Override
                     public void onSuccess(PaymentEntity result) {
                         loadingOverlay.hide();
+                        if (result.proofImagePath != null && !result.proofImagePath.trim().isEmpty()) {
+                            CloudImageStorageManager.uploadProofImage(AddPaymentActivity.this, result);
+                        }
                         Intent intent = new Intent(AddPaymentActivity.this, ReceiptDetailActivity.class);
                         intent.putExtra(ReceiptDetailActivity.EXTRA_RECEIPT_ID, result.receiptId);
                         startActivity(intent);

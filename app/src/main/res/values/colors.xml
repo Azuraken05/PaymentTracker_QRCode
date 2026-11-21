@@ -54,4 +54,11 @@
 
     <!-- Loading overlay scrim -->
     <color name="loading_overlay_dim">#800B132B</color>
+
+    <!-- Live Clock Hero Card Palette -->
+    <color name="clock_card_surface">#FF0F172A</color>
+    <color name="clock_card_stroke">#FF1E293B</color>
+    <color name="clock_pill_bg">#FF1E293B</color>
+    <color name="clock_seconds_mint">#FF34D399</color>
+    <color name="clock_muted_slate">#FF94A3B8</color>
 </resources>

@@ -1152,6 +1152,10 @@ public class PaymentRepository {
     }
 
     public void createSection(String sectionName, String description, Long parentFolderId, ResultCallback<SectionEntity> callback) {
+        createSection(sectionName, description, parentFolderId, false, callback);
+    }
+
+    public void createSection(String sectionName, String description, Long parentFolderId, boolean mergeGrossToParent, ResultCallback<SectionEntity> callback) {
         AppDatabase.DB_EXECUTOR.execute(() -> {
             try {
                 if (!sessionManager.canCreateOrEditRecords()) {
@@ -1162,6 +1166,13 @@ public class PaymentRepository {
                 if (cleanName.isEmpty()) {
                     postError(callback, "Folder / section name is required.");
                     return;
+                }
+                if (parentFolderId != null && parentFolderId > 0) {
+                    SectionEntity parent = sectionDao.findByIdSync(parentFolderId);
+                    if (parent != null && parent.isSubfolder()) {
+                        postError(callback, "Subfolders can only be created inside a main section folder.");
+                        return;
+                    }
                 }
                 String activeRoomId = sessionManager.getActiveRoomId();
                 SectionEntity existing = sectionDao.findSiblingByNameSync(activeRoomId, parentFolderId, cleanName);
@@ -1178,7 +1189,8 @@ public class PaymentRepository {
                         0.0,
                         SectionEntity.SYNC_PENDING,
                         now,
-                        activeRoomId
+                        activeRoomId,
+                        mergeGrossToParent
                 );
                 long id = sectionDao.insertSection(entity);
                 entity.id = id;
@@ -1266,6 +1278,46 @@ public class PaymentRepository {
                 postSuccess(callback, updated);
             } catch (Exception e) {
                 postError(callback, "Failed to rename folder: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Updates mergeGrossToParent setting for a subfolder, writes audit log, and queues sync.
+     */
+    public void updateFolderMergeGross(long sectionId, boolean merge, ResultCallback<SectionEntity> callback) {
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            try {
+                if (!sessionManager.canCreateOrEditRecords()) {
+                    postError(callback, "Auditors have read-only access and cannot change folder settings.");
+                    return;
+                }
+                SectionEntity target = sectionDao.findByIdSync(sectionId);
+                if (target == null) {
+                    postError(callback, "Folder not found.");
+                    return;
+                }
+                long now = System.currentTimeMillis();
+                sectionDao.updateMergeGrossToParent(sectionId, merge, now);
+
+                String msg = merge
+                        ? "Enabled gross collected merge to parent folder for \"" + target.sectionName + "\""
+                        : "Disabled gross collected merge to parent folder for \"" + target.sectionName + "\"";
+
+                insertAttributedAuditLogSync(
+                        AuditLogEntity.ACTION_FOLDER_MERGE_UPDATED,
+                        sectionId,
+                        target.sectionName,
+                        null,
+                        msg,
+                        now
+                );
+
+                SectionEntity updated = sectionDao.findByIdSync(sectionId);
+                FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
+                postSuccess(callback, updated);
+            } catch (Exception e) {
+                postError(callback, "Failed to update folder merge setting: " + e.getMessage());
             }
         });
     }

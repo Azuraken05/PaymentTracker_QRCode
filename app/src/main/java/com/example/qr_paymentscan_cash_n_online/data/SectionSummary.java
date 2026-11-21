@@ -36,4 +36,11 @@ public class SectionSummary {
 
     @ColumnInfo(name = "room_id")
     public String roomId;
+
+    @ColumnInfo(name = "merge_gross_to_parent")
+    public boolean mergeGrossToParent;
+
+    public boolean isSubfolder() {
+        return parentFolderId != null;
+    }
 }

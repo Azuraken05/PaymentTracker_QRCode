@@ -141,6 +141,72 @@
                     android:paddingTop="12dp"
                     android:paddingBottom="88dp">
 
+                <!-- 0. Subfolder Merge to Parent Toggle Card (Visible only when parentSectionId != null for OWNER and COLLECTOR) -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/cardSubfolderMergeControl"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="10dp"
+                    android:visibility="gone"
+                    app:cardBackgroundColor="@color/card_surface"
+                    app:cardCornerRadius="@dimen/card_corner_radius"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="12dp">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:layout_width="20dp"
+                                android:layout_height="20dp"
+                                android:contentDescription="Merge Setting"
+                                android:src="@drawable/ic_merge_type"
+                                app:tint="@color/primary" />
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:layout_weight="1"
+                                android:orientation="vertical">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Merge Gross Collected to Parent"
+                                    android:textColor="@color/text_primary"
+                                    android:textSize="13sp"
+                                    android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvSubfolderMergeStatusDesc"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="Separate — Tracked independently from the parent folder's total."
+                                    android:textColor="@color/text_secondary"
+                                    android:textSize="11sp" />
+                            </LinearLayout>
+
+                            <com.google.android.material.materialswitch.MaterialSwitch
+                                android:id="@+id/switchSubfolderMergeGross"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
                 <!-- 1. Section Financial Summary Card (Gross Collected - Expenses = Net Balance) -->
                 <com.google.android.material.card.MaterialCardView
                     android:layout_width="match_parent"
@@ -245,6 +311,17 @@
                                     android:textColor="@color/status_paid_green"
                                     android:textSize="15sp"
                                     android:textStyle="bold" />
+
+                                <TextView
+                                    android:id="@+id/tvMergedGrossSubline"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:fontFeatureSettings="tnum"
+                                    android:text="Includes ₱0.00 from 0 subfolder(s)"
+                                    android:textColor="@color/status_paid_green"
+                                    android:textSize="10sp"
+                                    android:visibility="gone" />
                             </LinearLayout>
 
                             <LinearLayout

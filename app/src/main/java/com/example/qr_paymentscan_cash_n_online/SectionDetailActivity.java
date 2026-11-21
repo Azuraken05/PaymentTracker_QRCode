@@ -44,15 +44,19 @@ import com.example.qr_paymentscan_cash_n_online.ui.ExpenseAdapter;
 import com.example.qr_paymentscan_cash_n_online.ui.PaymentAdapter;
 import com.example.qr_paymentscan_cash_n_online.ui.ReceiptVerifierBottomSheet;
 import com.example.qr_paymentscan_cash_n_online.ui.SectionAdapter;
+import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
+import com.example.qr_paymentscan_cash_n_online.util.SectionFinancialCalculator;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton;
+import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
@@ -71,6 +75,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
     private long sectionId;
     private String sectionName = "";
+    private SectionEntity currentSection;
     private PaymentRepository repository;
     private UserSessionManager sessionManager;
     private SectionAdapter subfolderAdapter;
@@ -82,9 +87,6 @@ public class SectionDetailActivity extends BaseThemedActivity {
     private String currentSearchQuery = "";
     private int currentFilterChipId = R.id.chipFilterAll;
     private boolean showingExpensesTab = false;
-
-    private double directGrossCollected = 0.0;
-    private double directActiveExpenses = 0.0;
 
     private View rootView;
     private TextView tvSectionTitle;
@@ -101,6 +103,11 @@ public class SectionDetailActivity extends BaseThemedActivity {
     private TextView tvSectionGrossCollected;
     private TextView tvSectionExpensesTotal;
     private TextView tvSectionValidCount;
+    private TextView tvMergedGrossSubline;
+
+    private MaterialCardView cardSubfolderMergeControl;
+    private MaterialSwitch switchSubfolderMergeGross;
+    private TextView tvSubfolderMergeStatusDesc;
 
     private TextView tvSubfoldersHeader;
     private RecyclerView rvSubfolders;
@@ -171,6 +178,11 @@ public class SectionDetailActivity extends BaseThemedActivity {
         tvSectionGrossCollected = findViewById(R.id.tvSectionGrossCollected);
         tvSectionExpensesTotal = findViewById(R.id.tvSectionExpensesTotal);
         tvSectionValidCount = findViewById(R.id.tvSectionValidCount);
+        tvMergedGrossSubline = findViewById(R.id.tvMergedGrossSubline);
+
+        cardSubfolderMergeControl = findViewById(R.id.cardSubfolderMergeControl);
+        switchSubfolderMergeGross = findViewById(R.id.switchSubfolderMergeGross);
+        tvSubfolderMergeStatusDesc = findViewById(R.id.tvSubfolderMergeStatusDesc);
 
         tvSubfoldersHeader = findViewById(R.id.tvSubfoldersHeader);
         btnNewSubfolder = findViewById(R.id.btnNewSubfolder);
@@ -315,6 +327,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
         super.onResume();
         applyRolePermissionsUi();
         refreshCombinedTreeBalance();
+        CloudImageStorageManager.retryPendingUploads(this);
     }
 
     @Override
@@ -350,13 +363,17 @@ public class SectionDetailActivity extends BaseThemedActivity {
     private void applyRolePermissionsUi() {
         boolean canWrite = sessionManager.canCreateOrEditRecords();
         boolean canDeleteOrVoid = sessionManager.canVoidOrDeleteOrManageMembers();
+        boolean isCurrentSubfolder = currentSection != null && currentSection.isSubfolder();
 
         btnRenameSectionTop.setVisibility(canWrite ? View.VISIBLE : View.GONE);
         btnDeleteSectionTop.setVisibility(canDeleteOrVoid ? View.VISIBLE : View.GONE);
         btnActionNewPayment.setVisibility(canWrite ? View.VISIBLE : View.GONE);
         btnActionAddExpense.setVisibility(canWrite ? View.VISIBLE : View.GONE);
-        btnNewSubfolder.setVisibility(canWrite ? View.VISIBLE : View.GONE);
+        btnNewSubfolder.setVisibility((canWrite && !isCurrentSubfolder) ? View.VISIBLE : View.GONE);
         fabNewPayment.setVisibility(canWrite ? View.VISIBLE : View.GONE);
+        if (cardSubfolderMergeControl != null && (!canWrite || !isCurrentSubfolder)) {
+            cardSubfolderMergeControl.setVisibility(View.GONE);
+        }
     }
 
     private int calculateAdaptiveSpanCount() {
@@ -405,8 +422,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
                 for (int i = 0; i < chain.size(); i++) {
                     SectionEntity node = chain.get(i);
-                    TextView sep = createBreadcrumbLabel("  >  ", false);
-                    layoutBreadcrumbContainer.addView(sep);
+                    layoutBreadcrumbContainer.addView(createBreadcrumbSeparator());
 
                     boolean isCurrent = (i == chain.size() - 1);
                     TextView nodeChip = createBreadcrumbLabel(node.sectionName, !isCurrent);
@@ -429,6 +445,19 @@ public class SectionDetailActivity extends BaseThemedActivity {
         });
     }
 
+    private ImageView createBreadcrumbSeparator() {
+        ImageView iv = new ImageView(this);
+        int size = (int) (14 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+        int margin = (int) (4 * getResources().getDisplayMetrics().density);
+        lp.setMargins(margin, 0, margin, 0);
+        lp.gravity = android.view.Gravity.CENTER_VERTICAL;
+        iv.setLayoutParams(lp);
+        iv.setImageResource(R.drawable.ic_chevron_right);
+        iv.setColorFilter(ContextCompat.getColor(this, R.color.text_secondary));
+        return iv;
+    }
+
     private TextView createBreadcrumbLabel(String text, boolean clickable) {
         TextView tv = new TextView(this);
         tv.setText(text);
@@ -446,13 +475,14 @@ public class SectionDetailActivity extends BaseThemedActivity {
     private void observeSectionData() {
         repository.observeSectionById(sectionId).observe(this, section -> {
             if (section == null) {
-                if (hasLoadedSectionOnce && !isFinishing() && !isDestroyed()) {
-                    Toast.makeText(SectionDetailActivity.this, R.string.folder_deleted_toast, Toast.LENGTH_SHORT).show();
+                if (!isFinishing() && !isDestroyed()) {
+                    Toast.makeText(SectionDetailActivity.this, "This subfolder was deleted", Toast.LENGTH_SHORT).show();
                     finish();
                 }
                 return;
             }
             hasLoadedSectionOnce = true;
+            currentSection = section;
             sectionName = section.sectionName;
             tvSectionTitle.setText(section.sectionName);
             if (section.description != null && !section.description.isEmpty()) {
@@ -460,20 +490,64 @@ public class SectionDetailActivity extends BaseThemedActivity {
             } else {
                 tvSectionSubtitle.setText("Section Payment & Expense Ledger");
             }
+
+            applyRolePermissionsUi();
+            if (section.isSubfolder()) {
+                tvSubfoldersHeader.setVisibility(View.GONE);
+                rvSubfolders.setVisibility(View.GONE);
+            }
+
+            // Subfolder Merge to Parent Toggle Card
+            if (section.isSubfolder() && sessionManager.canCreateOrEditRecords()) {
+                cardSubfolderMergeControl.setVisibility(View.VISIBLE);
+                switchSubfolderMergeGross.setOnCheckedChangeListener(null);
+                switchSubfolderMergeGross.setChecked(section.mergeGrossToParent);
+                updateMergeDesc(section.mergeGrossToParent);
+
+                switchSubfolderMergeGross.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    updateMergeDesc(isChecked);
+                    repository.updateFolderMergeGross(sectionId, isChecked, new PaymentRepository.ResultCallback<SectionEntity>() {
+                        @Override
+                        public void onSuccess(SectionEntity result) {
+                            Snackbar.make(rootView, isChecked
+                                    ? "Merged gross into parent folder."
+                                    : "Gross separated from parent folder.", Snackbar.LENGTH_SHORT).show();
+                            updateFinancialSummaryDisplay();
+                        }
+
+                        @Override
+                        public void onError(String message) {
+                            switchSubfolderMergeGross.setOnCheckedChangeListener(null);
+                            switchSubfolderMergeGross.setChecked(!isChecked);
+                            updateMergeDesc(!isChecked);
+                            Snackbar.make(rootView, "Failed to update merge setting: " + message, Snackbar.LENGTH_LONG).show();
+                        }
+                    });
+                });
+            } else {
+                cardSubfolderMergeControl.setVisibility(View.GONE);
+            }
+
             buildBreadcrumbNavigation();
         });
 
         repository.observeSubfolderSummaries(sectionId).observe(this, subfolders -> {
+            boolean isCurrentSubfolder = currentSection != null && currentSection.isSubfolder();
+            if (isCurrentSubfolder) {
+                tvSubfoldersHeader.setVisibility(View.GONE);
+                rvSubfolders.setVisibility(View.GONE);
+                return;
+            }
             int count = subfolders != null ? subfolders.size() : 0;
             tvSubfoldersHeader.setText("Sub-Folders (" + count + ")");
             subfolderAdapter.submitList(subfolders);
+            tvSubfoldersHeader.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
             rvSubfolders.setVisibility(count > 0 ? View.VISIBLE : View.GONE);
-            refreshCombinedTreeBalance();
+            updateFinancialSummaryDisplay();
         });
 
         repository.observePaymentsBySection(sectionId).observe(this, payments -> {
             allSectionPayments.clear();
-            double activeSum = 0.0;
             int validCount = 0;
             int voidCount = 0;
 
@@ -484,12 +558,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
                         voidCount++;
                     } else {
                         validCount++;
-                        activeSum += p.amount;
                     }
                 }
             }
 
-            directGrossCollected = activeSum;
             tvSectionValidCount.setText(validCount + " Paid • " + voidCount + " Voided");
             updateFinancialSummaryDisplay();
             applyFilters();
@@ -497,30 +569,50 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
         repository.observeExpensesBySection(sectionId).observe(this, expenses -> {
             allSectionExpenses.clear();
-            double activeExpenseSum = 0.0;
             if (expenses != null) {
                 allSectionExpenses.addAll(expenses);
-                for (ExpenseEntity ex : expenses) {
-                    if (!ex.isVoided()) {
-                        activeExpenseSum += ex.amount;
-                    }
-                }
             }
-            directActiveExpenses = activeExpenseSum;
             updateFinancialSummaryDisplay();
             applyFilters();
         });
     }
 
+    private void updateMergeDesc(boolean isMerged) {
+        if (tvSubfolderMergeStatusDesc != null) {
+            if (isMerged) {
+                tvSubfolderMergeStatusDesc.setText("Merged — Gross Collected is included in the parent folder's total.");
+            } else {
+                tvSubfolderMergeStatusDesc.setText("Separate — Tracked independently from the parent folder's total.");
+            }
+        }
+    }
+
     private void updateFinancialSummaryDisplay() {
-        double netBalance = directGrossCollected - directActiveExpenses;
-        tvSectionGrossCollected.setText(CurrencyFormatter.formatPhp(directGrossCollected));
-        tvSectionExpensesTotal.setText("- " + CurrencyFormatter.formatPhp(directActiveExpenses));
-        tvSectionNetBalance.setText(CurrencyFormatter.formatPhp(netBalance));
-        tvSectionNetBalance.setTextColor(ContextCompat.getColor(
-                this,
-                netBalance < 0 ? R.color.status_void_red : R.color.primary
-        ));
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            AppDatabase db = AppDatabase.getInstance(SectionDetailActivity.this);
+            SectionFinancialCalculator.FinancialSummary summary =
+                    SectionFinancialCalculator.calculateSummarySync(db, sectionId);
+            runOnUiThread(() -> {
+                if (isFinishing() || isDestroyed()) {
+                    return;
+                }
+                tvSectionGrossCollected.setText(CurrencyFormatter.formatPhp(summary.totalGrossCollected));
+                tvSectionExpensesTotal.setText("- " + CurrencyFormatter.formatPhp(summary.totalExpenses));
+                tvSectionNetBalance.setText(CurrencyFormatter.formatPhp(summary.netBalance));
+                tvSectionNetBalance.setTextColor(ContextCompat.getColor(
+                        SectionDetailActivity.this,
+                        summary.netBalance < 0 ? R.color.status_void_red : R.color.primary
+                ));
+
+                if (summary.mergedSubfolderGross > 0) {
+                    tvMergedGrossSubline.setVisibility(View.VISIBLE);
+                    tvMergedGrossSubline.setText("Includes " + CurrencyFormatter.formatPhp(summary.mergedSubfolderGross)
+                            + " merged from " + summary.mergedSubfolderCount + " subfolder(s)");
+                } else {
+                    tvMergedGrossSubline.setVisibility(View.GONE);
+                }
+            });
+        });
         refreshCombinedTreeBalance();
     }
 
@@ -613,10 +705,24 @@ public class SectionDetailActivity extends BaseThemedActivity {
             Snackbar.make(rootView, "Auditors have read-only access.", Snackbar.LENGTH_SHORT).show();
             return;
         }
+        if (currentSection != null && currentSection.isSubfolder()) {
+            Snackbar.make(rootView, "Subfolders can only be created inside a main section folder.", Snackbar.LENGTH_LONG).show();
+            return;
+        }
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_create_section, null);
         TextInputLayout tilName = dialogView.findViewById(R.id.tilSectionName);
         TextInputEditText etName = dialogView.findViewById(R.id.etSectionName);
         TextInputEditText etDesc = dialogView.findViewById(R.id.etSectionDescription);
+        View layoutMerge = dialogView.findViewById(R.id.layoutMergeGrossOption);
+        MaterialSwitch switchMerge = dialogView.findViewById(R.id.switchDialogMergeGross);
+
+        if (layoutMerge != null) {
+            layoutMerge.setVisibility(View.VISIBLE);
+        }
+        if (switchMerge != null) {
+            switchMerge.setChecked(false);
+        }
+
         tilName.setHint("Sub-Folder Name (e.g., Event T-Shirt, Org Fee) *");
 
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
@@ -630,6 +736,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
                 String name = etName.getText() != null ? etName.getText().toString().trim() : "";
                 String desc = etDesc.getText() != null ? etDesc.getText().toString().trim() : "";
+                boolean mergeGross = switchMerge != null && switchMerge.isChecked();
                 if (name.isEmpty()) {
                     tilName.setError("Sub-folder name is required");
                     return;
@@ -637,7 +744,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
                 tilName.setError(null);
 
                 loadingOverlay.show("Creating Sub-Folder...", "Updating across all connected devices");
-                repository.createSection(name, desc, sectionId, new PaymentRepository.ResultCallback<SectionEntity>() {
+                repository.createSection(name, desc, sectionId, mergeGross, new PaymentRepository.ResultCallback<SectionEntity>() {
                     @Override
                     public void onSuccess(SectionEntity result) {
                         loadingOverlay.hide();

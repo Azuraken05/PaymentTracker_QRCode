@@ -95,7 +95,32 @@ public final class LocalStorageManager {
             throw new IOException("Selected file is not a valid image.");
         }
 
-        int maxDimension = 1600;
+        // Correct orientation from EXIF if available
+        try (InputStream exifStream = context.getContentResolver().openInputStream(sourceUri)) {
+            if (exifStream != null) {
+                android.media.ExifInterface exif = new android.media.ExifInterface(exifStream);
+                int orientation = exif.getAttributeInt(
+                        android.media.ExifInterface.TAG_ORIENTATION,
+                        android.media.ExifInterface.ORIENTATION_NORMAL
+                );
+                int rotationDegrees = 0;
+                if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_90) {
+                    rotationDegrees = 90;
+                } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_180) {
+                    rotationDegrees = 180;
+                } else if (orientation == android.media.ExifInterface.ORIENTATION_ROTATE_270) {
+                    rotationDegrees = 270;
+                }
+                if (rotationDegrees != 0) {
+                    android.graphics.Matrix matrix = new android.graphics.Matrix();
+                    matrix.postRotate(rotationDegrees);
+                    decoded = Bitmap.createBitmap(decoded, 0, 0, decoded.getWidth(), decoded.getHeight(), matrix, true);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+
+        int maxDimension = 1280;
         int width = decoded.getWidth();
         int height = decoded.getHeight();
         Bitmap outputBitmap = decoded;
@@ -110,9 +135,14 @@ public final class LocalStorageManager {
                 + UUID.randomUUID().toString().substring(0, 6) + ".jpg";
         File destFile = new File(proofDir, fileName);
         try (FileOutputStream fos = new FileOutputStream(destFile)) {
-            outputBitmap.compress(Bitmap.CompressFormat.JPEG, 88, fos);
+            outputBitmap.compress(Bitmap.CompressFormat.JPEG, 80, fos);
             fos.flush();
         }
+
+        if (!destFile.exists() || destFile.length() == 0) {
+            throw new IOException("Failed to save permanent compressed image file.");
+        }
+
         return destFile.getAbsolutePath();
     }
 

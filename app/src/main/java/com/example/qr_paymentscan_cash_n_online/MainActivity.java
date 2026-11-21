@@ -9,8 +9,11 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
+import android.widget.TextClock;
 import android.widget.TextView;
+import android.content.res.ColorStateList;
 
 import androidx.activity.EdgeToEdge;
 import androidx.activity.result.ActivityResultLauncher;
@@ -48,10 +51,16 @@ import com.google.android.material.textfield.TextInputLayout;
 import com.journeyapps.barcodescanner.ScanContract;
 import com.journeyapps.barcodescanner.ScanOptions;
 
+import androidx.core.content.ContextCompat;
+import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
+import java.util.Calendar;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 
 public class MainActivity extends BaseThemedActivity {
+
+    private static final String PREF_CLOCK_24H = "pref_clock_24h";
 
     private PaymentRepository repository;
     private UserSessionManager sessionManager;
@@ -69,6 +78,17 @@ public class MainActivity extends BaseThemedActivity {
     private String lastRoomEntrySyncId = null;
     private SwipeRefreshLayout swipeRefreshSections;
     private LoadingOverlayController loadingOverlay;
+
+    // Live Digital Clock & Workspace Command Card Views
+    private TextView tvClockGreeting;
+    private TextView tvClockRoleBadge;
+    private View layoutClockReadout;
+    private TextClock clockHoursMinutes;
+    private TextClock clockSeconds;
+    private TextClock clockAmPm;
+    private TextClock clockFullDate;
+    private ImageView ivClockSyncDot;
+    private TextView tvClockSyncStatus;
 
     // Live Camera QR Scanner Launcher
     private final ActivityResultLauncher<ScanOptions> qrCameraScanLauncher =
@@ -145,6 +165,18 @@ public class MainActivity extends BaseThemedActivity {
         loadingOverlay = new LoadingOverlayController(this);
         swipeRefreshSections.setColorSchemeResources(R.color.primary);
         swipeRefreshSections.setOnRefreshListener(this::handlePullToRefresh);
+
+        // Bind Live Digital Clock & Command Card Views
+        tvClockGreeting = findViewById(R.id.tvClockGreeting);
+        tvClockRoleBadge = findViewById(R.id.tvClockRoleBadge);
+        layoutClockReadout = findViewById(R.id.layoutClockReadout);
+        clockHoursMinutes = findViewById(R.id.clockHoursMinutes);
+        clockSeconds = findViewById(R.id.clockSeconds);
+        clockAmPm = findViewById(R.id.clockAmPm);
+        clockFullDate = findViewById(R.id.clockFullDate);
+        ivClockSyncDot = findViewById(R.id.ivClockSyncDot);
+        tvClockSyncStatus = findViewById(R.id.tvClockSyncStatus);
+        setupLiveClockCard();
 
         sectionAdapter = new SectionAdapter(
                 section -> {
@@ -223,6 +255,9 @@ public class MainActivity extends BaseThemedActivity {
         FirebaseSyncManager.refreshSyncStatusUi(this);
         refreshRoomAndRoleUi();
         rebindRootSectionsObserverIfNeeded();
+        updateClockGreeting();
+        updateClockRoleBadge();
+        CloudImageStorageManager.flushPendingUploads(this);
         sectionAdapter.notifyDataSetChanged();
     }
 
@@ -343,6 +378,7 @@ public class MainActivity extends BaseThemedActivity {
             if (state == null) {
                 return;
             }
+            updateClockSyncStatus(state);
             switch (state) {
                 case LOCAL_MODE_UNCONFIGURED:
                     btnSyncStatusChip.setText("Local Mode");
@@ -366,6 +402,103 @@ public class MainActivity extends BaseThemedActivity {
                     break;
             }
         });
+    }
+
+    private void setupLiveClockCard() {
+        boolean is24h = getSharedPreferences("app_prefs", MODE_PRIVATE).getBoolean(PREF_CLOCK_24H, false);
+        applyClockFormat(is24h);
+
+        if (layoutClockReadout != null) {
+            layoutClockReadout.setOnClickListener(v -> {
+                boolean current = getSharedPreferences("app_prefs", MODE_PRIVATE).getBoolean(PREF_CLOCK_24H, false);
+                boolean next = !current;
+                getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putBoolean(PREF_CLOCK_24H, next).apply();
+                applyClockFormat(next);
+                Snackbar.make(
+                        rootView,
+                        next ? "Switched to 24-hour clock" : "Switched to 12-hour clock",
+                        Snackbar.LENGTH_SHORT
+                ).show();
+            });
+        }
+
+        updateClockGreeting();
+        updateClockRoleBadge();
+        updateClockSyncStatus(FirebaseSyncManager.observeSyncUiState().getValue());
+    }
+
+    private void applyClockFormat(boolean is24Hour) {
+        if (clockHoursMinutes != null) {
+            clockHoursMinutes.setFormat12Hour(is24Hour ? "HH:mm" : "hh:mm");
+            clockHoursMinutes.setFormat24Hour(is24Hour ? "HH:mm" : "hh:mm");
+        }
+        if (clockAmPm != null) {
+            clockAmPm.setVisibility(is24Hour ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    private void updateClockGreeting() {
+        if (tvClockGreeting == null) {
+            return;
+        }
+        Calendar cal = Calendar.getInstance();
+        int hour = cal.get(Calendar.HOUR_OF_DAY);
+        String greeting;
+        if (hour >= 5 && hour < 12) {
+            greeting = "Good Morning";
+        } else if (hour >= 12 && hour < 18) {
+            greeting = "Good Afternoon";
+        } else {
+            greeting = "Good Evening";
+        }
+
+        String displayName = "Officer";
+        com.google.firebase.auth.FirebaseUser fbUser = com.google.firebase.auth.FirebaseAuth.getInstance().getCurrentUser();
+        if (fbUser != null && fbUser.getDisplayName() != null && !fbUser.getDisplayName().trim().isEmpty()) {
+            String[] parts = fbUser.getDisplayName().trim().split("\\s+");
+            displayName = parts[0];
+        } else if (sessionManager != null) {
+            String officer = sessionManager.getCurrentUserName();
+            if (officer != null && !officer.trim().isEmpty()) {
+                String[] parts = officer.trim().split("\\s+");
+                displayName = parts[0];
+            }
+        }
+        tvClockGreeting.setText(greeting + ", " + displayName);
+    }
+
+    private void updateClockRoleBadge() {
+        if (tvClockRoleBadge == null) {
+            return;
+        }
+        String role = sessionManager != null ? sessionManager.getActiveRoomRole() : "OWNER";
+        if (role == null || role.trim().isEmpty()) {
+            role = "OWNER";
+        }
+        tvClockRoleBadge.setText(role.toUpperCase(Locale.US));
+        if ("OWNER".equalsIgnoreCase(role)) {
+            tvClockRoleBadge.setTextColor(ContextCompat.getColor(this, R.color.status_paid_green));
+        } else if ("COLLECTOR".equalsIgnoreCase(role)) {
+            tvClockRoleBadge.setTextColor(ContextCompat.getColor(this, R.color.gcash_blue));
+        } else {
+            tvClockRoleBadge.setTextColor(ContextCompat.getColor(this, R.color.clock_muted_slate));
+        }
+    }
+
+    private void updateClockSyncStatus(FirebaseSyncManager.SyncUiState state) {
+        if (tvClockSyncStatus == null || ivClockSyncDot == null) {
+            return;
+        }
+        if (state == null || state == FirebaseSyncManager.SyncUiState.LOCAL_MODE_UNCONFIGURED) {
+            tvClockSyncStatus.setText("Local Mode");
+            ivClockSyncDot.setImageTintList(ColorStateList.valueOf(ContextCompat.getColor(this, R.color.status_warning_amber)));
+        } else if (state == FirebaseSyncManager.SyncUiState.OFFLINE_WAITING_WIFI) {
+            tvClockSyncStatus.setText("Offline Mode");
+            ivClockSyncDot.setImageTintList(ColorStateList.valueOf(ContextCompat.getColor(this, R.color.status_warning_amber)));
+        } else {
+            tvClockSyncStatus.setText("Cloud Synced");
+            ivClockSyncDot.setImageTintList(ColorStateList.valueOf(ContextCompat.getColor(this, R.color.status_paid_green)));
+        }
     }
 
     private void handleManualSyncClick() {

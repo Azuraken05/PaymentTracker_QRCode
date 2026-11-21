@@ -67,7 +67,7 @@ public interface SectionDao {
     @Query("SELECT * FROM sections WHERE room_id = :roomId AND sync_status = 'SYNCED'")
     List<SectionEntity> getSyncedSectionsByRoomSync(String roomId);
 
-    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, " +
+    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, s.merge_gross_to_parent, " +
             "(SELECT COUNT(*) FROM sections child WHERE child.parent_folder_id = s.id) AS subfolder_count, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN p.amount ELSE 0 END), 0.0) AS total_collected, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN 1 ELSE 0 END), 0) AS valid_count, " +
@@ -79,7 +79,7 @@ public interface SectionDao {
             "ORDER BY s.created_at DESC")
     LiveData<List<SectionSummary>> observeRootSectionSummariesByRoom(String roomId);
 
-    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, " +
+    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, s.merge_gross_to_parent, " +
             "(SELECT COUNT(*) FROM sections child WHERE child.parent_folder_id = s.id) AS subfolder_count, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN p.amount ELSE 0 END), 0.0) AS total_collected, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN 1 ELSE 0 END), 0) AS valid_count, " +
@@ -91,7 +91,10 @@ public interface SectionDao {
             "ORDER BY s.created_at DESC")
     LiveData<List<SectionSummary>> observeRootSectionSummaries();
 
-    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, " +
+    @Query("UPDATE sections SET merge_gross_to_parent = :merge, sync_status = 'PENDING', updated_at = :updatedAt WHERE id = :sectionId")
+    void updateMergeGrossToParent(long sectionId, boolean merge, long updatedAt);
+
+    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, s.merge_gross_to_parent, " +
             "(SELECT COUNT(*) FROM sections child WHERE child.parent_folder_id = s.id) AS subfolder_count, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN p.amount ELSE 0 END), 0.0) AS total_collected, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN 1 ELSE 0 END), 0) AS valid_count, " +
@@ -102,6 +105,18 @@ public interface SectionDao {
             "GROUP BY s.id " +
             "ORDER BY s.created_at ASC")
     LiveData<List<SectionSummary>> observeSubfolderSummaries(long parentId);
+
+    @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, s.merge_gross_to_parent, " +
+            "(SELECT COUNT(*) FROM sections child WHERE child.parent_folder_id = s.id) AS subfolder_count, " +
+            "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN p.amount ELSE 0 END), 0.0) AS total_collected, " +
+            "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN 1 ELSE 0 END), 0) AS valid_count, " +
+            "COALESCE(SUM(CASE WHEN p.status = 'VOIDED' THEN 1 ELSE 0 END), 0) AS voided_count " +
+            "FROM sections s " +
+            "LEFT JOIN payments p ON s.id = p.section_id " +
+            "WHERE s.parent_folder_id = :parentId " +
+            "GROUP BY s.id " +
+            "ORDER BY s.created_at ASC")
+    List<SectionSummary> getSubfolderSummariesSync(long parentId);
 
     @Query("SELECT COUNT(*) FROM sections WHERE sync_status = 'PENDING'")
     LiveData<Integer> observePendingCount();

@@ -12,6 +12,7 @@ import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RosterStudentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.SectionEntity;
+import com.example.qr_paymentscan_cash_n_online.util.SectionFinancialCalculator;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.firebase.auth.FirebaseAuth;
@@ -343,7 +344,11 @@ public final class FirestoreRealtimeSyncManager {
             case COL_SECTIONS: {
                 Long id = remoteNumericId(doc, "SEC-");
                 if (id != null) {
-                    db.sectionDao().deleteSectionById(id);
+                    List<Long> allDescendants = SectionFinancialCalculator.getAllDescendantSectionIdsSync(db, id);
+                    db.paymentDao().deletePaymentsBySectionIds(allDescendants);
+                    db.expenseDao().deleteExpensesBySectionIds(allDescendants);
+                    db.rosterStudentDao().deleteRosterBySectionIds(allDescendants);
+                    db.sectionDao().deleteSectionsByIds(allDescendants);
                 }
                 break;
             }
@@ -405,10 +410,19 @@ public final class FirestoreRealtimeSyncManager {
     private void reconcileLocalWithRemote(AppDatabase db, String roomId, String collection, Set<String> remoteKeys) {
         switch (collection) {
             case COL_SECTIONS: {
-                for (SectionEntity s : db.sectionDao().getSyncedSectionsByRoomSync(roomId)) {
+                List<SectionEntity> synced = db.sectionDao().getSyncedSectionsByRoomSync(roomId);
+                List<Long> toDelete = new ArrayList<>();
+                for (SectionEntity s : synced) {
                     if (!remoteKeys.contains(String.valueOf(s.id))) {
-                        db.sectionDao().deleteSectionById(s.id);
+                        toDelete.add(s.id);
                     }
+                }
+                for (Long delId : toDelete) {
+                    List<Long> descendants = SectionFinancialCalculator.getAllDescendantSectionIdsSync(db, delId);
+                    db.paymentDao().deletePaymentsBySectionIds(descendants);
+                    db.expenseDao().deleteExpensesBySectionIds(descendants);
+                    db.rosterStudentDao().deleteRosterBySectionIds(descendants);
+                    db.sectionDao().deleteSectionsByIds(descendants);
                 }
                 break;
             }
@@ -687,6 +701,8 @@ public final class FirestoreRealtimeSyncManager {
             long createdAt = safeLong(doc.getLong("createdAt"), System.currentTimeMillis());
             Long parentFolderId = doc.getLong("parentFolderId");
             double targetFee = safeDouble(doc.getDouble("targetFeeAmount"), 0.0);
+            Boolean mergeGrossVal = doc.getBoolean("mergeGrossToParent");
+            boolean mergeGross = mergeGrossVal != null ? mergeGrossVal : (local != null && local.mergeGrossToParent);
 
             SectionEntity entity = new SectionEntity(
                     sectionName.trim(),
@@ -696,7 +712,8 @@ public final class FirestoreRealtimeSyncManager {
                     targetFee,
                     SectionEntity.SYNC_SYNCED,
                     remoteUpdatedAt > 0 ? remoteUpdatedAt : createdAt,
-                    roomId
+                    roomId,
+                    mergeGross
             );
             entity.id = id;
             db.sectionDao().insertOrReplaceSection(entity);

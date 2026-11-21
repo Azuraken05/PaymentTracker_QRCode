@@ -24,6 +24,7 @@ import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.PaymentValidationHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
@@ -379,6 +380,9 @@ public class EditReceiptActivity extends BaseThemedActivity {
                     @Override
                     public void onSuccess(PaymentEntity result) {
                         loadingOverlay.hide();
+                        if (result.proofImagePath != null && !result.proofImagePath.trim().isEmpty()) {
+                            CloudImageStorageManager.uploadProofImage(EditReceiptActivity.this, result);
+                        }
                         Toast.makeText(EditReceiptActivity.this, "Receipt updated successfully.", Toast.LENGTH_SHORT).show();
                         finish();
                     }

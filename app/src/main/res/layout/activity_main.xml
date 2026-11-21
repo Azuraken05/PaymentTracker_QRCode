@@ -235,6 +235,191 @@
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
+        <!-- Live Digital Clock & Workspace Command Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/cardLiveClockHero"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginHorizontal="@dimen/screen_outer_margin"
+            android:layout_marginTop="14dp"
+            android:layout_marginBottom="2dp"
+            app:cardBackgroundColor="@color/clock_card_surface"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp"
+            app:strokeColor="@color/clock_card_stroke"
+            app:strokeWidth="1dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
+
+                <!-- Top Row: Contextual Greeting & Role Badge -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tvClockGreeting"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:text="Good Morning, Officer"
+                        android:textColor="@color/clock_muted_slate"
+                        android:textSize="13sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvClockRoleBadge"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_badge_pill"
+                        android:backgroundTint="@color/clock_pill_bg"
+                        android:fontFeatureSettings="tnum"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="3dp"
+                        android:text="OWNER"
+                        android:textColor="@color/status_paid_green"
+                        android:textSize="10sp"
+                        android:textStyle="bold" />
+                </LinearLayout>
+
+                <!-- Middle Row: Jitter-Free Live Digital Clock (Interactive 12h/24h toggle) -->
+                <LinearLayout
+                    android:id="@+id/layoutClockReadout"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:clickable="true"
+                    android:focusable="true"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <!-- Primary Hours & Minutes -->
+                    <TextClock
+                        android:id="@+id/clockHoursMinutes"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:fontFamily="sans-serif-medium"
+                        android:fontFeatureSettings="tnum"
+                        android:format12Hour="hh:mm"
+                        android:format24Hour="HH:mm"
+                        android:textColor="@color/white"
+                        android:textSize="34sp"
+                        android:textStyle="bold" />
+
+                    <!-- Live Seconds & AM/PM Pill -->
+                    <LinearLayout
+                        android:id="@+id/layoutClockSecPill"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:background="@drawable/bg_badge_pill"
+                        android:backgroundTint="@color/clock_pill_bg"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="4dp">
+
+                        <TextClock
+                            android:id="@+id/clockSeconds"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:fontFeatureSettings="tnum"
+                            android:format12Hour=":ss"
+                            android:format24Hour=":ss"
+                            android:textColor="@color/clock_seconds_mint"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextClock
+                            android:id="@+id/clockAmPm"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="4dp"
+                            android:fontFeatureSettings="tnum"
+                            android:format12Hour="a"
+                            android:format24Hour=""
+                            android:textColor="@color/clock_muted_slate"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+
+                <!-- Subtle 1dp Divider -->
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginVertical="10dp"
+                    android:background="@color/clock_card_stroke" />
+
+                <!-- Bottom Row: Full Date & Live Sync Status -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="14dp"
+                        android:layout_height="14dp"
+                        android:contentDescription="Calendar"
+                        android:src="@drawable/ic_calendar_today"
+                        app:tint="@color/clock_muted_slate" />
+
+                    <TextClock
+                        android:id="@+id/clockFullDate"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:fontFeatureSettings="tnum"
+                        android:format12Hour="EEEE, MMM dd, yyyy"
+                        android:format24Hour="EEEE, MMM dd, yyyy"
+                        android:textColor="@color/clock_muted_slate"
+                        android:textSize="12sp" />
+
+                    <!-- Live Sync Indicator Pill -->
+                    <LinearLayout
+                        android:id="@+id/layoutClockSyncStatus"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:background="@drawable/bg_badge_pill"
+                        android:backgroundTint="@color/clock_pill_bg"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal"
+                        android:paddingHorizontal="8dp"
+                        android:paddingVertical="3dp">
+
+                        <ImageView
+                            android:id="@+id/ivClockSyncDot"
+                            android:layout_width="8dp"
+                            android:layout_height="8dp"
+                            android:contentDescription="Sync Indicator"
+                            android:src="@drawable/bg_initials_circle"
+                            app:tint="@color/status_paid_green" />
+
+                        <TextView
+                            android:id="@+id/tvClockSyncStatus"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="5dp"
+                            android:fontFeatureSettings="tnum"
+                            android:text="Cloud Synced"
+                            android:textColor="@color/white"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Section Header Label -->
         <LinearLayout
             android:layout_width="match_parent"
