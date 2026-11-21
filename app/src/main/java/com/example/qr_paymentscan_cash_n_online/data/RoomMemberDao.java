@@ -12,7 +12,7 @@ import java.util.List;
 public interface RoomMemberDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    long insertOrReplaceMember(RoomMemberEntity member);
+    void insertOrReplaceMember(RoomMemberEntity member);
 
     @Query("SELECT * FROM room_members WHERE room_id = :roomId ORDER BY " +
             "CASE status WHEN 'PENDING_APPROVAL' THEN 0 WHEN 'ACTIVE' THEN 1 ELSE 2 END, " +
@@ -47,6 +47,12 @@ public interface RoomMemberDao {
 
     @Query("SELECT * FROM room_members WHERE user_id = :userId")
     List<RoomMemberEntity> getMembersByUserSync(String userId);
+
+    @Query("SELECT * FROM room_members WHERE user_id = :userId")
+    List<RoomMemberEntity> getMembershipsForUser(String userId);
+
+    @Query("SELECT * FROM room_members WHERE user_id = :userId")
+    LiveData<List<RoomMemberEntity>> observeMembershipsForUser(String userId);
 
     @Query("DELETE FROM room_members WHERE room_id = :roomId AND user_id = :userId")
     void deleteMember(String roomId, String userId);

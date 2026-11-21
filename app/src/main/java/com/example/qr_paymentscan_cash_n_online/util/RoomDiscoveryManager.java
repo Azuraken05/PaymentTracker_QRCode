@@ -24,10 +24,8 @@ import com.google.firebase.firestore.Source;
 
 import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 import java.util.concurrent.TimeUnit;
 
 public class RoomDiscoveryManager {
@@ -62,30 +60,29 @@ public class RoomDiscoveryManager {
             FirebaseFirestore firestore = FirebaseFirestore.getInstance();
             Map<String, RoomEntity> discoveredRooms = new HashMap<>();
             Map<String, RoomMemberEntity> discoveredMembers = new HashMap<>();
-            Set<String> discoveredRoomIds = new HashSet<>();
 
             try {
-                // 1. Query A: Rooms owned by user
-                Task<QuerySnapshot> ownedTask = firestore.collection("rooms")
-                        .whereEqualTo("ownerUserId", uid)
-                        .get(Source.SERVER);
+                // 1. Query A: Rooms owned by user (Source.SERVER with offline CACHE fallback)
+                QuerySnapshot ownedSnapshot = null;
+                try {
+                    ownedSnapshot = Tasks.await(firestore.collection("rooms")
+                            .whereEqualTo("ownerUserId", uid)
+                            .get(Source.SERVER), 10, TimeUnit.SECONDS);
+                } catch (Exception eServer) {
+                    try {
+                        ownedSnapshot = Tasks.await(firestore.collection("rooms")
+                                .whereEqualTo("ownerUserId", uid)
+                                .get(Source.CACHE), 4, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
+                    }
+                }
 
-                // 2. Query B: Joined & Pending Rooms via collectionGroup("members")
-                Task<QuerySnapshot> joinedTask = firestore.collectionGroup("members")
-                        .whereEqualTo("userId", uid)
-                        .get(Source.SERVER);
-
-                Tasks.await(Tasks.whenAllComplete(ownedTask, joinedTask), 15, TimeUnit.SECONDS);
-
-                // Process Query A (Owned)
-                if (ownedTask.isSuccessful() && ownedTask.getResult() != null) {
-                    for (DocumentSnapshot doc : ownedTask.getResult().getDocuments()) {
+                if (ownedSnapshot != null) {
+                    for (DocumentSnapshot doc : ownedSnapshot.getDocuments()) {
                         RoomEntity room = parseRoomEntity(doc);
                         if (room != null) {
                             discoveredRooms.put(room.roomId, room);
-                            discoveredRoomIds.add(room.roomId);
 
-                            // Ensure owner member entity is present
                             RoomMemberEntity ownerMember = new RoomMemberEntity(
                                     room.roomId,
                                     uid,
@@ -101,10 +98,24 @@ public class RoomDiscoveryManager {
                     }
                 }
 
-                // Process Query B (Joined)
-                if (joinedTask.isSuccessful() && joinedTask.getResult() != null) {
+                // 2. Query B: Joined & Pending Rooms via collectionGroup("members") (Source.SERVER with offline CACHE fallback)
+                QuerySnapshot joinedSnapshot = null;
+                try {
+                    joinedSnapshot = Tasks.await(firestore.collectionGroup("members")
+                            .whereEqualTo("userId", uid)
+                            .get(Source.SERVER), 12, TimeUnit.SECONDS);
+                } catch (Exception eServer) {
+                    try {
+                        joinedSnapshot = Tasks.await(firestore.collectionGroup("members")
+                                .whereEqualTo("userId", uid)
+                                .get(Source.CACHE), 4, TimeUnit.SECONDS);
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                if (joinedSnapshot != null) {
                     List<Task<DocumentSnapshot>> roomFetchTasks = new ArrayList<>();
-                    for (DocumentSnapshot memberDoc : joinedTask.getResult().getDocuments()) {
+                    for (DocumentSnapshot memberDoc : joinedSnapshot.getDocuments()) {
                         String status = memberDoc.getString("status");
                         if (RoomMemberEntity.STATUS_BANNED.equalsIgnoreCase(status)) {
                             continue; // Skip banned rooms
@@ -119,8 +130,6 @@ public class RoomDiscoveryManager {
                         if (rId == null || rId.isEmpty()) {
                             continue;
                         }
-
-                        discoveredRoomIds.add(rId);
 
                         String role = safeStr(memberDoc.getString("role"), RoomMemberEntity.ROLE_COLLECTOR);
                         String memberName = safeStr(memberDoc.getString("userName"), session.getCurrentUserName());
@@ -142,10 +151,7 @@ public class RoomDiscoveryManager {
                         discoveredMembers.put(rId, member);
 
                         if (!discoveredRooms.containsKey(rId)) {
-                            Task<DocumentSnapshot> fetchRoomTask = firestore.collection("rooms")
-                                    .document(rId)
-                                    .get(Source.SERVER);
-                            roomFetchTasks.add(fetchRoomTask);
+                            roomFetchTasks.add(firestore.collection("rooms").document(rId).get(Source.SERVER));
                         }
                     }
 
@@ -165,7 +171,7 @@ public class RoomDiscoveryManager {
                     }
                 }
 
-                // 3. Hydrate Local SQLite & Clean Stale Entries
+                // 3. Upsert ALL discovered rooms and members into local SQLite without overwriting or deleting other rooms
                 for (RoomEntity room : discoveredRooms.values()) {
                     db.roomDao().insertOrReplaceRoom(room);
                 }
@@ -173,27 +179,10 @@ public class RoomDiscoveryManager {
                     db.roomMemberDao().insertOrReplaceMember(member);
                 }
 
-                // Remove local rooms that no longer exist or user was removed from
-                if (!discoveredRoomIds.isEmpty()) {
-                    List<RoomEntity> localRooms = db.roomDao().getAllRoomsSync();
-                    for (RoomEntity local : localRooms) {
-                        if (!discoveredRoomIds.contains(local.roomId)) {
-                            db.roomDao().deleteRoomById(local.roomId);
-                            db.roomMemberDao().deleteMembersByRoom(local.roomId);
-                        }
-                    }
-                }
+                List<RoomEntity> allRooms = db.roomDao().getAllRoomsSync();
+                List<RoomEntity> activeRooms = db.roomDao().getActiveRoomsForUserSync(uid);
 
-                List<RoomEntity> allDiscovered = new ArrayList<>(discoveredRooms.values());
-                List<RoomEntity> activeDiscovered = new ArrayList<>();
-                for (RoomEntity room : allDiscovered) {
-                    RoomMemberEntity m = discoveredMembers.get(room.roomId);
-                    if (m != null && m.isActive()) {
-                        activeDiscovered.add(room);
-                    }
-                }
-
-                notifyCallback(callback, activeDiscovered, allDiscovered);
+                notifyCallback(callback, activeRooms, allRooms);
 
             } catch (Exception e) {
                 // On server failure, read local Room SQLite
@@ -206,8 +195,8 @@ public class RoomDiscoveryManager {
 
     /**
      * Discovers rooms with animated overlay and routes user:
-     * - If exactly 1 ACTIVE room (or last_active_room_id is active): automatically opens MainActivity.
-     * - Else: opens RoomLobbyActivity.
+     * - If exactly 1 ACTIVE room from login: automatically opens MainActivity.
+     * - Else (0 or 2+ rooms, or Switch Room): opens RoomLobbyActivity.
      */
     public static void discoverAndRouteUser(Activity activity, LoadingOverlayController overlay, boolean fromLogin) {
         if (overlay != null) {
@@ -219,25 +208,10 @@ public class RoomDiscoveryManager {
                 overlay.hide();
             }
             UserSessionManager session = UserSessionManager.getInstance(activity);
-            String lastActive = session.getActiveRoomId();
 
-            RoomEntity autoOpenRoom = null;
-            if (lastActive != null) {
-                for (RoomEntity r : activeRooms) {
-                    if (r.roomId.equals(lastActive)) {
-                        autoOpenRoom = r;
-                        break;
-                    }
-                }
-            }
-
-            if (autoOpenRoom == null && activeRooms.size() == 1) {
-                autoOpenRoom = activeRooms.get(0);
-            }
-
-            if (fromLogin && autoOpenRoom != null) {
-                // Auto-open workspace directly
-                final RoomEntity target = autoOpenRoom;
+            // Auto-open only if from login and user has exactly 1 active room
+            if (fromLogin && activeRooms != null && activeRooms.size() == 1) {
+                final RoomEntity target = activeRooms.get(0);
                 AppDatabase.DB_EXECUTOR.execute(() -> {
                     AppDatabase db = AppDatabase.getInstance(activity);
                     FirebaseUser user = FirebaseAuth.getInstance().getCurrentUser();
@@ -256,7 +230,7 @@ public class RoomDiscoveryManager {
                     });
                 });
             } else {
-                // Open RoomLobbyActivity
+                // Open RoomLobbyActivity (shows all joined workspaces)
                 Intent intent = new Intent(activity, RoomLobbyActivity.class);
                 intent.putExtra(RoomLobbyActivity.EXTRA_FROM_LOGIN, fromLogin);
                 activity.startActivity(intent);

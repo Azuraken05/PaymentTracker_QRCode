@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
                 RosterStudentEntity.class,
                 AuditLogEntity.class
         },
-        version = 5,
+        version = 7,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -206,6 +206,49 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * Explicit Non-Destructive Room Migration from version 5 to version 6.
+     * Migrates room_members to use composite primary key (room_id, user_id)
+     * while preserving 100% of existing local memberships.
+     */
+    public static final Migration MIGRATION_5_6 = new Migration(5, 6) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("CREATE TABLE IF NOT EXISTS `room_members_new` (" +
+                    "`room_id` TEXT NOT NULL, " +
+                    "`user_id` TEXT NOT NULL, " +
+                    "`user_name` TEXT NOT NULL, " +
+                    "`user_email` TEXT NOT NULL, " +
+                    "`role` TEXT NOT NULL, " +
+                    "`joined_at` INTEGER NOT NULL, " +
+                    "`status` TEXT NOT NULL DEFAULT 'ACTIVE', " +
+                    "`device_info` TEXT, " +
+                    "PRIMARY KEY(`room_id`, `user_id`))");
+
+            db.execSQL("INSERT OR REPLACE INTO `room_members_new` " +
+                    "(`room_id`, `user_id`, `user_name`, `user_email`, `role`, `joined_at`, `status`, `device_info`) " +
+                    "SELECT `room_id`, `user_id`, `user_name`, `user_email`, `role`, `joined_at`, `status`, `device_info` " +
+                    "FROM `room_members`");
+
+            db.execSQL("DROP TABLE `room_members`");
+            db.execSQL("ALTER TABLE `room_members_new` RENAME TO `room_members`");
+            db.execSQL("CREATE INDEX IF NOT EXISTS `index_room_members_room_id` ON `room_members` (`room_id`)");
+        }
+    };
+
+    /**
+     * Explicit Non-Destructive Room Migration from version 6 to version 7.
+     * Adds is_cloud_room and cached_for_user_id columns to rooms table
+     * while preserving 100% of existing local records.
+     */
+    public static final Migration MIGRATION_6_7 = new Migration(6, 7) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE rooms ADD COLUMN is_cloud_room INTEGER NOT NULL DEFAULT 1");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN cached_for_user_id TEXT NOT NULL DEFAULT ''");
+        }
+    };
+
     public static AppDatabase getInstance(final Context context) {
         if (INSTANCE == null) {
             synchronized (AppDatabase.class) {
@@ -215,7 +258,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "payment_tracker_db"
                             )
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                             .build();
                 }
             }

@@ -5,13 +5,13 @@ import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
-import android.graphics.Color;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.ImageButton;
 import android.widget.ImageView;
@@ -38,6 +38,7 @@ import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.util.AppLockManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
+import com.example.qr_paymentscan_cash_n_online.util.RoomDeletionManager;
 import com.example.qr_paymentscan_cash_n_online.util.RoomSecurityHelper;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
@@ -51,6 +52,8 @@ import com.google.android.material.progressindicator.LinearProgressIndicator;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputEditText;
 import com.google.android.material.textfield.TextInputLayout;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
@@ -110,6 +113,11 @@ public class RoomMembersActivity extends BaseThemedActivity {
     private TextInputEditText etSearchMembers;
     private ChipGroup chipGroupMemberFilters;
     private LinearLayout layoutEmptyMembers;
+
+    // Danger Zone
+    private MaterialCardView cardDangerZone;
+    private MaterialButton btnDeleteRoomPermanent;
+
     private MembersAdapter adapter;
     private LoadingOverlayController loadingOverlay;
 
@@ -224,9 +232,16 @@ public class RoomMembersActivity extends BaseThemedActivity {
         etSearchMembers = findViewById(R.id.etSearchMembers);
         chipGroupMemberFilters = findViewById(R.id.chipGroupMemberFilters);
         layoutEmptyMembers = findViewById(R.id.layoutEmptyMembers);
+
+        cardDangerZone = findViewById(R.id.cardDangerZone);
+        btnDeleteRoomPermanent = findViewById(R.id.btnDeleteRoomPermanent);
     }
 
     private void setupClickListeners() {
+        if (btnDeleteRoomPermanent != null) {
+            btnDeleteRoomPermanent.setOnClickListener(v -> handleDeleteRoomClicked());
+        }
+
         btnCopyInviteKey.setOnClickListener(v -> copyInviteKeyOnly());
         btnShareInvite.setOnClickListener(v -> shareInviteIntent());
         btnShowRoomQr.setOnClickListener(v -> showRoomQrModalDialog());
@@ -601,6 +616,139 @@ public class RoomMembersActivity extends BaseThemedActivity {
         if (cardCredentialProtection != null) {
             cardCredentialProtection.setVisibility(isOwner ? View.VISIBLE : View.GONE);
         }
+        if (cardDangerZone != null) {
+            cardDangerZone.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void handleDeleteRoomClicked() {
+        if (currentRoom == null) return;
+        FirebaseUser fbUser = FirebaseAuth.getInstance().getCurrentUser();
+        if (fbUser == null) {
+            Toast.makeText(this, "You must be signed in to delete a room.", Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        loadingOverlay.show("Checking Email Verification...", "Validating owner security credentials");
+        fbUser.reload().addOnCompleteListener(reloadTask -> {
+            loadingOverlay.hide();
+            if (isFinishing() || isDestroyed()) return;
+
+            FirebaseUser refreshedUser = FirebaseAuth.getInstance().getCurrentUser();
+            if (refreshedUser == null) return;
+
+            if (!refreshedUser.isEmailVerified()) {
+                showEmailVerificationRequiredDialog(refreshedUser);
+            } else {
+                showDeleteRoomConfirmationDialog(refreshedUser);
+            }
+        });
+    }
+
+    private void showEmailVerificationRequiredDialog(FirebaseUser user) {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Verified Email Required")
+                .setMessage("For security, deleting a room permanently requires verified ownership of your account email (" 
+                        + user.getEmail() + ").\n\nPlease check your inbox and verify your email to continue.")
+                .setNeutralButton("Cancel", null)
+                .setNegativeButton("Send Verification Email", (dialog, which) -> {
+                    loadingOverlay.show("Sending Email...", "Sending verification link to " + user.getEmail());
+                    user.sendEmailVerification().addOnCompleteListener(task -> {
+                        loadingOverlay.hide();
+                        if (task.isSuccessful()) {
+                            Toast.makeText(this, "Verification link sent to " + user.getEmail() + ". Please check your inbox.", Toast.LENGTH_LONG).show();
+                        } else {
+                            String err = task.getException() != null ? task.getException().getMessage() : "Failed to send email";
+                            Toast.makeText(this, "Failed to send verification email: " + err, Toast.LENGTH_LONG).show();
+                        }
+                    });
+                })
+                .setPositiveButton("I've Verified — Continue", (dialog, which) -> {
+                    loadingOverlay.show("Checking Email...", "Verifying email status");
+                    user.reload().addOnCompleteListener(task -> {
+                        loadingOverlay.hide();
+                        if (user.isEmailVerified()) {
+                            showDeleteRoomConfirmationDialog(user);
+                        } else {
+                            Toast.makeText(this, "Email is not verified yet. Please click the link sent to your inbox.", Toast.LENGTH_LONG).show();
+                        }
+                    });
+                })
+                .show();
+    }
+
+    private void showDeleteRoomConfirmationDialog(FirebaseUser user) {
+        if (currentRoom == null) return;
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_delete_room_confirmation, null);
+        TextView tvVerifiedEmail = dialogView.findViewById(R.id.tvDeleteRoomVerifiedEmail);
+        TextInputLayout tilPassword = dialogView.findViewById(R.id.tilDeleteRoomPassword);
+        TextInputEditText etPassword = dialogView.findViewById(R.id.etDeleteRoomPassword);
+        TextInputLayout tilConfirmKey = dialogView.findViewById(R.id.tilDeleteRoomConfirmKey);
+        TextInputEditText etConfirmKey = dialogView.findViewById(R.id.etDeleteRoomConfirmKey);
+        TextView tvKeyPrompt = dialogView.findViewById(R.id.tvDeleteRoomKeyPrompt);
+
+        tvVerifiedEmail.setText(user.getEmail() != null ? user.getEmail() + " (Verified)" : "Email Verified");
+        tvKeyPrompt.setText("Type \"" + currentRoom.roomKey + "\" to confirm deletion");
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Delete Workspace Permanently")
+                .setView(dialogView)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Delete Room Forever", null)
+                .create();
+
+        dialog.setOnShowListener(d -> {
+            Button positiveBtn = dialog.getButton(AlertDialog.BUTTON_POSITIVE);
+            positiveBtn.setTextColor(ContextCompat.getColor(this, R.color.status_alert_crimson));
+            positiveBtn.setOnClickListener(v -> {
+                String pass = etPassword.getText() != null ? etPassword.getText().toString().trim() : "";
+                String typedKey = etConfirmKey.getText() != null ? etConfirmKey.getText().toString().trim() : "";
+
+                if (pass.isEmpty()) {
+                    tilPassword.setError("Account password is required");
+                    return;
+                }
+                tilPassword.setError(null);
+
+                if (!typedKey.equalsIgnoreCase(currentRoom.roomKey)) {
+                    tilConfirmKey.setError("Room Key does not match. Expected: " + currentRoom.roomKey);
+                    return;
+                }
+                tilConfirmKey.setError(null);
+
+                dialog.dismiss();
+                loadingOverlay.show("Permanently Deleting Room...", "Cascading deletion across cloud and local storage");
+
+                RoomDeletionManager.deleteRoomCascade(
+                        RoomMembersActivity.this,
+                        currentRoom.roomId,
+                        pass,
+                        new RoomDeletionManager.DeletionCallback() {
+                            @Override
+                            public void onSuccess() {
+                                loadingOverlay.hide();
+                                Toast.makeText(RoomMembersActivity.this, "Room permanently deleted", Toast.LENGTH_LONG).show();
+                                Intent intent = new Intent(RoomMembersActivity.this, RoomLobbyActivity.class);
+                                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
+                                startActivity(intent);
+                                finish();
+                            }
+
+                            @Override
+                            public void onError(String errorMessage) {
+                                loadingOverlay.hide();
+                                new MaterialAlertDialogBuilder(RoomMembersActivity.this)
+                                        .setTitle("Deletion Failed")
+                                        .setMessage(errorMessage)
+                                        .setPositiveButton("OK", null)
+                                        .show();
+                            }
+                        }
+                );
+            });
+        });
+
+        dialog.show();
     }
 
     private void copyInviteKeyOnly() {

@@ -48,6 +48,18 @@ public class ReceiptVerifierBottomSheet extends BottomSheetDialogFragment {
     }
 
     @Override
+    public void onStart() {
+        super.onStart();
+        if (getDialog() instanceof com.google.android.material.bottomsheet.BottomSheetDialog) {
+            com.google.android.material.bottomsheet.BottomSheetDialog dialog =
+                    (com.google.android.material.bottomsheet.BottomSheetDialog) getDialog();
+            com.google.android.material.bottomsheet.BottomSheetBehavior<?> behavior = dialog.getBehavior();
+            behavior.setState(com.google.android.material.bottomsheet.BottomSheetBehavior.STATE_EXPANDED);
+            behavior.setSkipCollapsed(true);
+        }
+    }
+
+    @Override
     public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
         super.onViewCreated(view, savedInstanceState);
 

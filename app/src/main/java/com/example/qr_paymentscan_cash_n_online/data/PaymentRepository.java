@@ -383,10 +383,6 @@ public class PaymentRepository {
                 matchedRoom.lockoutUntil = 0L;
                 roomDao.insertOrReplaceRoom(matchedRoom);
 
-                RoomMemberEntity existingMember = roomMemberDao.findMemberSync(matchedRoom.roomId, member.userId);
-                if (existingMember != null) {
-                    member.id = existingMember.id;
-                }
                 roomMemberDao.insertOrReplaceMember(member);
                 sessionManager.setActiveRoom(matchedRoom, member.role, member.status);
 

@@ -29,6 +29,13 @@ service cloud.firestore {
           );
     }
 
+    // Helper: True if caller is a verified email Room OWNER (email verified by provider)
+    function isVerifiedRoomOwner(roomId) {
+      return isSignedIn()
+          && request.auth.token.email_verified == true
+          && isRoomOwner(roomId);
+    }
+
     // Helper: True if caller is an ACTIVE OWNER or COLLECTOR
     function canWriteRecords(roomId) {
       return isRoomOwner(roomId)
@@ -41,12 +48,14 @@ service cloud.firestore {
       // Any signed-in user can read/query rooms (to look up a room by roomKey)
       allow read: if isSignedIn();
       allow create: if isSignedIn();
-      allow update, delete: if isRoomOwner(roomId);
+      allow update: if isRoomOwner(roomId);
+      allow delete: if isVerifiedRoomOwner(roomId);
 
       // 1a. Room Credential & Security Document (readable by signed-in users to verify password before joining; writable by Owner)
       match /private/{docId} {
         allow read: if isSignedIn();
         allow write: if isRoomOwner(roomId);
+        allow delete: if isVerifiedRoomOwner(roomId);
       }
 
       // 1b. Room Members & Waiting Room Approval Gate
@@ -80,32 +89,30 @@ service cloud.firestore {
               )
             );
 
-        // Only the Room Owner can delete/reject member documents
-        allow delete: if isRoomOwner(roomId);
+        // Only the Room Owner (or verified owner during cascade) can delete member documents
+        allow delete: if isRoomOwner(roomId) || isVerifiedRoomOwner(roomId);
       }
 
       // 1c. Section Folders & Nested Sub-Folders
       match /sections/{sectionId} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create, update: if canWriteRecords(roomId);
-        allow delete: if isRoomOwner(roomId);
+        allow delete: if isRoomOwner(roomId) || isVerifiedRoomOwner(roomId);
       }
 
       // 1d. Student Payment Receipts
       match /payments/{receiptId} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create: if canWriteRecords(roomId);
-        // Active Owners and Collectors can update receipts (including voids and edits)
         allow update: if canWriteRecords(roomId);
-        allow delete: if isRoomOwner(roomId);
+        allow delete: if isRoomOwner(roomId) || isVerifiedRoomOwner(roomId);
       }
 
       // 1e. Atomic Student Payment Locks (Multi-Cashier Simultaneous Tap Protection)
       match /payment_locks/{lockKey} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create, update: if canWriteRecords(roomId);
-        // Owners and Collectors can release/delete a lock when voiding or editing a payment
-        allow delete: if canWriteRecords(roomId);
+        allow delete: if canWriteRecords(roomId) || isVerifiedRoomOwner(roomId);
       }
 
       // 1f. Section Expenses
@@ -113,21 +120,22 @@ service cloud.firestore {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create: if canWriteRecords(roomId);
         allow update: if canWriteRecords(roomId);
-        allow delete: if isRoomOwner(roomId);
+        allow delete: if isRoomOwner(roomId) || isVerifiedRoomOwner(roomId);
       }
 
       // 1g. Roster Students
       match /roster_students/{studentId} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create, update: if canWriteRecords(roomId);
-        allow delete: if isRoomOwner(roomId);
+        allow delete: if isRoomOwner(roomId) || isVerifiedRoomOwner(roomId);
       }
 
-      // 1h. Immutable Audit Trail & Security Alerts (Append-Only: No One Can Edit or Delete)
+      // 1h. Immutable Audit Trail & Security Alerts
       match /audit_logs/{logId} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create: if isSignedIn();
-        allow update, delete: if false;
+        allow update: if false;
+        allow delete: if isVerifiedRoomOwner(roomId);
       }
     }
 

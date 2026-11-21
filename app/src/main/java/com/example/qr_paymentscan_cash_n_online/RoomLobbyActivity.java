@@ -4,13 +4,11 @@ import android.content.Intent;
 import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
-import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
-import android.widget.EditText;
 import android.widget.ImageButton;
 import android.widget.LinearLayout;
 import android.widget.TextView;
@@ -67,6 +65,7 @@ public class RoomLobbyActivity extends BaseThemedActivity {
     private PaymentRepository repository;
     private UserSessionManager sessionManager;
     private TextView tvRoomLobbyUserSubtitle;
+    private TextView tvJoinedRoomsHeader;
     private JoinedRoomsAdapter adapter;
 
     private ListenerRegistration pendingApprovalListener;
@@ -150,12 +149,25 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                 Toast.makeText(RoomLobbyActivity.this, message, Toast.LENGTH_LONG).show();
             }
         }));
+        tvJoinedRoomsHeader = findViewById(R.id.tvJoinedRoomsHeader);
         rvJoinedRooms.setLayoutManager(new LinearLayoutManager(this));
+        rvJoinedRooms.setNestedScrollingEnabled(false);
         rvJoinedRooms.setAdapter(adapter);
 
         repository.observeAllRooms().observe(this, rooms -> {
-            adapter.submitList(rooms != null ? rooms : new ArrayList<>());
+            List<RoomEntity> list = rooms != null ? rooms : new ArrayList<>();
+            adapter.submitList(list);
+            if (tvJoinedRoomsHeader != null) {
+                tvJoinedRoomsHeader.setText("My Joined Workspaces (" + list.size() + ")");
+            }
         });
+
+        String currentUid = sessionManager.getCurrentUserId();
+        if (currentUid != null && !currentUid.isEmpty()) {
+            AppDatabase.getInstance(this).roomMemberDao().observeMembershipsForUser(currentUid).observe(this, memberships -> {
+                adapter.updateMemberships(memberships);
+            });
+        }
     }
 
     @Override
@@ -882,6 +894,7 @@ public class RoomLobbyActivity extends BaseThemedActivity {
     private class JoinedRoomsAdapter extends RecyclerView.Adapter<JoinedRoomsAdapter.RoomViewHolder> {
 
         private final List<RoomEntity> items = new ArrayList<>();
+        private final Map<String, RoomMemberEntity> membershipMap = new HashMap<>();
         private final OnRoomClickListener listener;
 
         JoinedRoomsAdapter(OnRoomClickListener listener) {
@@ -891,6 +904,16 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         void submitList(List<RoomEntity> newList) {
             items.clear();
             items.addAll(newList);
+            notifyDataSetChanged();
+        }
+
+        void updateMemberships(List<RoomMemberEntity> memberships) {
+            membershipMap.clear();
+            if (memberships != null) {
+                for (RoomMemberEntity m : memberships) {
+                    membershipMap.put(m.roomId, m);
+                }
+            }
             notifyDataSetChanged();
         }
 
@@ -908,17 +931,31 @@ public class RoomLobbyActivity extends BaseThemedActivity {
             String lockStatus = room.isLocked ? " • LOCKED" : "";
             holder.tvKeyAndOwner.setText("Room Key: " + room.roomKey + " • Owner: " + room.ownerName + lockStatus);
 
+            RoomMemberEntity membership = membershipMap.get(room.roomId);
+            String currentUid = sessionManager.getCurrentUserId();
+            boolean isOwner = (membership != null && RoomMemberEntity.ROLE_OWNER.equalsIgnoreCase(membership.role))
+                    || (currentUid != null && currentUid.equals(room.ownerUserId));
+            String role = membership != null ? membership.role : (isOwner ? RoomMemberEntity.ROLE_OWNER : RoomMemberEntity.ROLE_COLLECTOR);
+            String status = membership != null ? membership.status : RoomMemberEntity.STATUS_ACTIVE;
+
+            if (holder.tvRoleBadge != null) {
+                holder.tvRoleBadge.setText(role);
+                holder.tvRoleBadge.setVisibility(View.VISIBLE);
+            }
+
             boolean isActive = room.roomId.equals(sessionManager.getActiveRoomId());
-            if (isActive) {
-                if (sessionManager.isPendingApproval()) {
-                    holder.tvBadge.setText("WAITING FOR OWNER APPROVAL");
-                } else {
-                    holder.tvBadge.setText("ACTIVE • " + sessionManager.getActiveRoomRole());
-                }
-                holder.tvBadge.setVisibility(View.VISIBLE);
+            if (RoomMemberEntity.STATUS_PENDING_APPROVAL.equalsIgnoreCase(status)) {
+                holder.tvBadge.setText("PENDING APPROVAL");
+                holder.tvBadge.setTextColor(ContextCompat.getColor(holder.itemView.getContext(), R.color.status_warning_amber));
+                holder.tvBadge.setBackgroundTintList(ContextCompat.getColorStateList(holder.itemView.getContext(), R.color.status_warning_bg));
+            } else if (isActive) {
+                holder.tvBadge.setText("ACTIVE");
+                holder.tvBadge.setTextColor(ContextCompat.getColor(holder.itemView.getContext(), R.color.status_paid_green));
+                holder.tvBadge.setBackgroundTintList(ContextCompat.getColorStateList(holder.itemView.getContext(), R.color.status_paid_bg));
             } else {
-                holder.tvBadge.setText("TAP TO SWITCH");
-                holder.tvBadge.setVisibility(View.VISIBLE);
+                holder.tvBadge.setText("SWITCH");
+                holder.tvBadge.setTextColor(ContextCompat.getColor(holder.itemView.getContext(), R.color.brand_primary));
+                holder.tvBadge.setBackgroundTintList(ContextCompat.getColorStateList(holder.itemView.getContext(), R.color.surface_variant));
             }
             holder.itemView.setOnClickListener(v -> listener.onRoomClicked(room));
         }
@@ -931,12 +968,14 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         class RoomViewHolder extends RecyclerView.ViewHolder {
             final TextView tvName;
             final TextView tvKeyAndOwner;
+            final TextView tvRoleBadge;
             final TextView tvBadge;
 
             RoomViewHolder(@NonNull View itemView) {
                 super(itemView);
                 tvName = itemView.findViewById(R.id.tvItemRoomName);
                 tvKeyAndOwner = itemView.findViewById(R.id.tvItemRoomKeyAndOwner);
+                tvRoleBadge = itemView.findViewById(R.id.tvItemRoomRoleBadge);
                 tvBadge = itemView.findViewById(R.id.tvItemRoomActiveBadge);
             }
         }

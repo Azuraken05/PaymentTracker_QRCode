@@ -5,12 +5,11 @@ import androidx.room.ColumnInfo;
 import androidx.room.Entity;
 import androidx.room.Ignore;
 import androidx.room.Index;
-import androidx.room.PrimaryKey;
 
 @Entity(
         tableName = "room_members",
+        primaryKeys = {"room_id", "user_id"},
         indices = {
-                @Index(value = {"room_id", "user_id"}, unique = true),
                 @Index(value = {"room_id"})
         }
 )
@@ -23,9 +22,6 @@ public class RoomMemberEntity {
     public static final String STATUS_ACTIVE = "ACTIVE";
     public static final String STATUS_PENDING_APPROVAL = "PENDING_APPROVAL";
     public static final String STATUS_BANNED = "BANNED";
-
-    @PrimaryKey(autoGenerate = true)
-    public long id;
 
     @NonNull
     @ColumnInfo(name = "room_id")

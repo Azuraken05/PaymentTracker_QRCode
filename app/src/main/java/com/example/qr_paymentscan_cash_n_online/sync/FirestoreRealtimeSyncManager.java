@@ -641,7 +641,6 @@ public final class FirestoreRealtimeSyncManager {
             String deviceInfo = doc.getString("deviceInfo");
             long joinedAt = safeLong(doc.getLong("joinedAt"), System.currentTimeMillis());
 
-            RoomMemberEntity existing = db.roomMemberDao().findMemberSync(roomId, userId);
             RoomMemberEntity member = new RoomMemberEntity(
                     roomId,
                     userId,
@@ -652,9 +651,6 @@ public final class FirestoreRealtimeSyncManager {
                     status,
                     deviceInfo
             );
-            if (existing != null) {
-                member.id = existing.id;
-            }
             db.roomMemberDao().insertOrReplaceMember(member);
 
             if (userId.equals(currentUserId)) {

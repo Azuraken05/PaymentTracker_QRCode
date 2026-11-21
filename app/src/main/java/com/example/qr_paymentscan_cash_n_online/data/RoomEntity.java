@@ -72,6 +72,13 @@ public class RoomEntity {
     @ColumnInfo(name = "lockout_until", defaultValue = "0")
     public long lockoutUntil;
 
+    @ColumnInfo(name = "is_cloud_room", defaultValue = "1")
+    public boolean isCloudRoom;
+
+    @NonNull
+    @ColumnInfo(name = "cached_for_user_id", defaultValue = "''")
+    public String cachedForUserId;
+
     @Ignore
     public RoomEntity(
             @NonNull String roomId,
@@ -120,6 +127,47 @@ public class RoomEntity {
             int failedJoinCount,
             long lockoutUntil
     ) {
+        this(
+                roomId,
+                roomName,
+                roomKey,
+                roomPasswordHash,
+                roomSigningSecret,
+                ownerUserId,
+                ownerName,
+                createdAt,
+                updatedAt,
+                roomSalt,
+                isLocked,
+                requireApproval,
+                keyExpiresAt,
+                failedJoinCount,
+                lockoutUntil,
+                true,
+                ""
+        );
+    }
+
+    @Ignore
+    public RoomEntity(
+            @NonNull String roomId,
+            @NonNull String roomName,
+            @NonNull String roomKey,
+            @NonNull String roomPasswordHash,
+            @NonNull String roomSigningSecret,
+            @NonNull String ownerUserId,
+            @NonNull String ownerName,
+            long createdAt,
+            long updatedAt,
+            String roomSalt,
+            boolean isLocked,
+            boolean requireApproval,
+            long keyExpiresAt,
+            int failedJoinCount,
+            long lockoutUntil,
+            boolean isCloudRoom,
+            String cachedForUserId
+    ) {
         this.roomId = roomId;
         this.roomName = roomName;
         this.roomKey = roomKey;
@@ -135,6 +183,25 @@ public class RoomEntity {
         this.keyExpiresAt = keyExpiresAt;
         this.failedJoinCount = failedJoinCount;
         this.lockoutUntil = lockoutUntil;
+        this.isCloudRoom = isCloudRoom;
+        this.cachedForUserId = cachedForUserId != null ? cachedForUserId : "";
+    }
+
+    public boolean isCloudRoom() {
+        return isCloudRoom;
+    }
+
+    public void setCloudRoom(boolean cloudRoom) {
+        isCloudRoom = cloudRoom;
+    }
+
+    @NonNull
+    public String getCachedForUserId() {
+        return cachedForUserId;
+    }
+
+    public void setCachedForUserId(String cachedForUserId) {
+        this.cachedForUserId = cachedForUserId != null ? cachedForUserId : "";
     }
 
     public boolean isKeyExpired(long nowMillis) {
