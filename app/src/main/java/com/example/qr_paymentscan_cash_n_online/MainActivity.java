@@ -66,6 +66,7 @@ public class MainActivity extends BaseThemedActivity {
     private UserSessionManager sessionManager;
     private SectionAdapter sectionAdapter;
     private TextView tvSectionCountBadge;
+    private TextView tvMainOrgSubtitle;
     private MaterialButton btnSyncStatusChip;
     private MaterialButton btnActiveRoomSwitcher;
     private ExtendedFloatingActionButton fabNewSection;
@@ -73,8 +74,11 @@ public class MainActivity extends BaseThemedActivity {
     private View rootView;
     private LiveData<List<SectionSummary>> currentRootSectionsLiveData;
     private LiveData<com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity> currentMemberLiveData;
+    private LiveData<com.example.qr_paymentscan_cash_n_online.data.RoomEntity> currentRoomLiveData;
+    private com.example.qr_paymentscan_cash_n_online.data.RoomEntity currentRoom;
     private String observedRoomId = null;
     private String observedMemberRoomId = null;
+    private String observedRoomDetailsId = null;
     private String lastRoomEntrySyncId = null;
     private SwipeRefreshLayout swipeRefreshSections;
     private LoadingOverlayController loadingOverlay;
@@ -155,6 +159,7 @@ public class MainActivity extends BaseThemedActivity {
         repository = new PaymentRepository(this);
 
         tvSectionCountBadge = findViewById(R.id.tvSectionCountBadge);
+        tvMainOrgSubtitle = findViewById(R.id.tvMainOrgSubtitle);
         btnSyncStatusChip = findViewById(R.id.btnSyncStatusChip);
         btnActiveRoomSwitcher = findViewById(R.id.btnActiveRoomSwitcher);
         MaterialButton btnRoomMembersMain = findViewById(R.id.btnRoomMembersMain);
@@ -270,18 +275,47 @@ public class MainActivity extends BaseThemedActivity {
     }
 
     private void refreshRoomAndRoleUi() {
-        String roomName = sessionManager.getActiveRoomName();
+        String roomName = (currentRoom != null && currentRoom.roomName != null && !currentRoom.roomName.trim().isEmpty())
+                ? currentRoom.roomName.trim()
+                : sessionManager.getActiveRoomName();
         String role = sessionManager.getActiveRoomRole();
-        if (sessionManager.isPendingApproval()) {
+        boolean isArchived = currentRoom != null && currentRoom.isArchived;
+
+        if (isArchived) {
+            btnActiveRoomSwitcher.setText("Room: " + roomName + " (ARCHIVED)");
+            fabNewSection.setVisibility(View.GONE);
+        } else if (sessionManager.isPendingApproval()) {
             btnActiveRoomSwitcher.setText("Room: " + roomName + " (PENDING APPROVAL)");
+            fabNewSection.setVisibility(View.GONE);
         } else {
             btnActiveRoomSwitcher.setText("Room: " + roomName + " (" + role + ")");
+            fabNewSection.setVisibility(sessionManager.canCreateOrEditRecords() ? View.VISIBLE : View.GONE);
         }
-        fabNewSection.setVisibility(sessionManager.canCreateOrEditRecords() ? View.VISIBLE : View.GONE);
     }
 
     private void rebindRootSectionsObserverIfNeeded() {
         String activeRoomId = sessionManager.getActiveRoomId();
+        if (activeRoomId != null && !activeRoomId.equals(observedRoomDetailsId)) {
+            if (currentRoomLiveData != null) {
+                currentRoomLiveData.removeObservers(this);
+            }
+            observedRoomDetailsId = activeRoomId;
+            currentRoomLiveData = repository.observeRoomById(activeRoomId);
+            currentRoomLiveData.observe(this, room -> {
+                currentRoom = room;
+                if (currentRoom != null && currentRoom.organizationSubtitle != null && !currentRoom.organizationSubtitle.trim().isEmpty()) {
+                    if (tvMainOrgSubtitle != null) {
+                        tvMainOrgSubtitle.setText(currentRoom.organizationSubtitle.trim());
+                        tvMainOrgSubtitle.setVisibility(View.VISIBLE);
+                    }
+                } else {
+                    if (tvMainOrgSubtitle != null) {
+                        tvMainOrgSubtitle.setVisibility(View.GONE);
+                    }
+                }
+                refreshRoomAndRoleUi();
+            });
+        }
         if (activeRoomId != null && !activeRoomId.equals(observedMemberRoomId)) {
             if (currentMemberLiveData != null) {
                 currentMemberLiveData.removeObservers(this);
@@ -520,6 +554,10 @@ public class MainActivity extends BaseThemedActivity {
     }
 
     private void showCreateSectionDialog() {
+        if (currentRoom != null && currentRoom.isArchived) {
+            com.example.qr_paymentscan_cash_n_online.util.RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canCreateOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access and cannot create folders.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -568,6 +606,10 @@ public class MainActivity extends BaseThemedActivity {
     }
 
     private void showRenameSectionDialog(SectionSummary section) {
+        if (currentRoom != null && currentRoom.isArchived) {
+            com.example.qr_paymentscan_cash_n_online.util.RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canCreateOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access and cannot rename folders.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -610,6 +652,10 @@ public class MainActivity extends BaseThemedActivity {
     }
 
     private void confirmDeleteSectionFolder(SectionSummary section) {
+        if (currentRoom != null && currentRoom.isArchived) {
+            com.example.qr_paymentscan_cash_n_online.util.RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canVoidOrDeleteOrManageMembers()) {
             Snackbar.make(rootView, "Only the Room OWNER can delete folders.", Snackbar.LENGTH_SHORT).show();
             return;

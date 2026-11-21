@@ -23,6 +23,12 @@ public interface AuditLogDao {
     @Query("SELECT * FROM audit_logs WHERE room_id = :roomId OR room_id IS NULL ORDER BY timestamp DESC")
     LiveData<List<AuditLogEntity>> observeLogsByRoom(String roomId);
 
+    @Query("SELECT * FROM audit_logs WHERE receipt_id = :receiptId ORDER BY timestamp DESC")
+    LiveData<List<AuditLogEntity>> observeLogsByReceiptId(String receiptId);
+
+    @Query("SELECT * FROM audit_logs WHERE receipt_id = :receiptId ORDER BY timestamp DESC")
+    List<AuditLogEntity> getLogsByReceiptIdSync(String receiptId);
+
     @Query("SELECT * FROM audit_logs WHERE section_id = :sectionId ORDER BY timestamp DESC")
     LiveData<List<AuditLogEntity>> observeLogsBySection(long sectionId);
 

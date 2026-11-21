@@ -48,6 +48,16 @@
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/tvItemRoomSubtitle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="1dp"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+                <TextView
                     android:id="@+id/tvItemRoomKeyAndOwner"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -93,6 +103,23 @@
                     android:textColor="@color/status_paid_green"
                     android:textSize="10sp"
                     android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvItemRoomArchivedBadge"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:background="@drawable/bg_badge_pill"
+                    android:backgroundTint="@color/status_warning_bg"
+                    android:paddingStart="8dp"
+                    android:paddingTop="2dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="2dp"
+                    android:text="ARCHIVED"
+                    android:textColor="@color/status_warning_amber"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
             </LinearLayout>
         </LinearLayout>
     </LinearLayout>

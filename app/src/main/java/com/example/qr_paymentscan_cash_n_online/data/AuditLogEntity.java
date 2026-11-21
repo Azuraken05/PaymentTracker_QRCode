@@ -21,6 +21,7 @@ public class AuditLogEntity {
     public static final String ACTION_FOLDER_RENAMED = "FOLDER_RENAMED";
     public static final String ACTION_FOLDER_DELETED = "FOLDER_DELETED";
     public static final String ACTION_FOLDER_MERGE_UPDATED = "FOLDER_MERGE_UPDATED";
+    public static final String ACTION_ROOM_SETTINGS_UPDATED = "ROOM_SETTINGS_UPDATED";
     public static final String ACTION_RECEIPT_EDITED = "RECEIPT_EDITED";
     public static final String ACTION_PAYMENT_RECORDED = "PAYMENT_RECORDED";
     public static final String ACTION_PAYMENT_VOIDED = "PAYMENT_VOIDED";

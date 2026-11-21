@@ -22,11 +22,14 @@ import com.bumptech.glide.Glide;
 import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
+import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import com.example.qr_paymentscan_cash_n_online.ui.ProofImagePreviewDialog;
 import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.PaymentValidationHelper;
+import com.example.qr_paymentscan_cash_n_online.util.RoomPolicyGuard;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
@@ -68,10 +71,14 @@ public class EditReceiptActivity extends BaseThemedActivity {
 
     private MaterialCardView cardEditProofPreview;
     private ImageView ivEditProofThumbnail;
+    private MaterialButton btnEditRemoveProof;
+    private ChipGroup chipGroupEditReasons;
     private MaterialButton btnSaveEditReceipt;
 
     private String selectedPaymentMethod = PaymentEntity.METHOD_CASH;
     private String selectedProofPath = null;
+    private boolean isProofRemoved = false;
+    private RoomEntity currentRoom;
     private Uri pendingCameraCaptureUri = null;
 
     private final ActivityResultLauncher<String> pickGalleryProofLauncher =
@@ -140,9 +147,27 @@ public class EditReceiptActivity extends BaseThemedActivity {
 
         cardEditProofPreview = findViewById(R.id.cardEditProofPreview);
         ivEditProofThumbnail = findViewById(R.id.ivEditProofThumbnail);
+        btnEditRemoveProof = findViewById(R.id.btnEditRemoveProof);
+        chipGroupEditReasons = findViewById(R.id.chipGroupEditReasons);
         MaterialButton btnGallery = findViewById(R.id.btnEditPickGalleryProof);
         MaterialButton btnCamera = findViewById(R.id.btnEditCaptureCameraProof);
         btnSaveEditReceipt = findViewById(R.id.btnSaveEditReceipt);
+
+        cardEditProofPreview.setOnClickListener(v -> {
+            String remoteUrl = (currentPayment != null && !isProofRemoved)
+                    ? (currentPayment.proofImageUrl != null ? currentPayment.proofImageUrl : currentPayment.remoteProofUrl)
+                    : null;
+            File localFile = (selectedProofPath != null && !isProofRemoved) ? new File(selectedProofPath) : null;
+            ProofImagePreviewDialog.show(this, localFile, remoteUrl);
+        });
+
+        btnEditRemoveProof.setOnClickListener(v -> {
+            isProofRemoved = true;
+            selectedProofPath = null;
+            cardEditProofPreview.setVisibility(View.GONE);
+            btnEditRemoveProof.setVisibility(View.GONE);
+            Snackbar.make(rootView, "Proof photo removed.", Snackbar.LENGTH_SHORT).show();
+        });
 
         chipGroupEditPaymentProviders.setOnCheckedStateChangeListener((group, checkedIds) -> {
             if (checkedIds.isEmpty()) return;
@@ -185,6 +210,17 @@ public class EditReceiptActivity extends BaseThemedActivity {
                 return;
             }
             currentPayment = payment;
+            if (payment.roomId != null && !payment.roomId.isEmpty()) {
+                repository.observeRoomById(payment.roomId).observe(this, room -> {
+                    if (room != null) {
+                        currentRoom = room;
+                        if (room.isArchived) {
+                            RoomPolicyGuard.showArchivedRoomNotice(this);
+                            finish();
+                        }
+                    }
+                });
+            }
             tvEditReceiptIdHeader.setText(payment.receiptId);
             tvEditSectionName.setText("Folder: " + payment.sectionName);
 
@@ -240,14 +276,30 @@ public class EditReceiptActivity extends BaseThemedActivity {
     }
 
     private void renderProofThumbnail(String localPath, String remoteUrl) {
+        if (isProofRemoved) {
+            cardEditProofPreview.setVisibility(View.GONE);
+            if (btnEditRemoveProof != null) {
+                btnEditRemoveProof.setVisibility(View.GONE);
+            }
+            return;
+        }
         if (localPath != null && new File(localPath).exists()) {
             cardEditProofPreview.setVisibility(View.VISIBLE);
+            if (btnEditRemoveProof != null) {
+                btnEditRemoveProof.setVisibility(View.VISIBLE);
+            }
             Glide.with(this).load(new File(localPath)).centerCrop().into(ivEditProofThumbnail);
         } else if (remoteUrl != null && !remoteUrl.trim().isEmpty()) {
             cardEditProofPreview.setVisibility(View.VISIBLE);
+            if (btnEditRemoveProof != null) {
+                btnEditRemoveProof.setVisibility(View.VISIBLE);
+            }
             Glide.with(this).load(remoteUrl).centerCrop().into(ivEditProofThumbnail);
         } else {
             cardEditProofPreview.setVisibility(View.GONE);
+            if (btnEditRemoveProof != null) {
+                btnEditRemoveProof.setVisibility(View.GONE);
+            }
         }
     }
 
@@ -270,6 +322,7 @@ public class EditReceiptActivity extends BaseThemedActivity {
             try {
                 String savedPath = LocalStorageManager.copyProofImageToInternalStorage(this, uri);
                 runOnUiThread(() -> {
+                    isProofRemoved = false;
                     selectedProofPath = savedPath;
                     renderProofThumbnail(savedPath, null);
                     Snackbar.make(rootView, "Proof image attached.", Snackbar.LENGTH_SHORT).show();
@@ -339,21 +392,30 @@ public class EditReceiptActivity extends BaseThemedActivity {
         }
 
         if (PaymentValidationHelper.isOnline(effectivePaymentMethod)) {
-            boolean hasLocalImage = selectedProofPath != null && new File(selectedProofPath).exists();
-            boolean hasCloudImage = currentPayment != null && (
+            boolean hasLocalImage = !isProofRemoved && selectedProofPath != null && new File(selectedProofPath).exists();
+            boolean hasCloudImage = !isProofRemoved && currentPayment != null && (
                     (currentPayment.remoteProofUrl != null && !currentPayment.remoteProofUrl.trim().isEmpty())
                     || (currentPayment.proofImageUrl != null && !currentPayment.proofImageUrl.trim().isEmpty())
             );
-            boolean valid = PaymentValidationHelper.validateOnlinePaymentProof(
-                    effectivePaymentMethod,
-                    gcashRef,
-                    hasLocalImage,
-                    hasCloudImage
-            );
-            if (!valid) {
-                tilEditGcashRef.setError("Reference ID or Proof Image is required for online payments");
-                Snackbar.make(rootView, PaymentValidationHelper.ERROR_ONLINE_PROOF_OR_REF_REQUIRED, Snackbar.LENGTH_LONG).show();
+            boolean hasAnyImage = hasLocalImage || hasCloudImage;
+            boolean requireProofStrict = currentRoom != null && currentRoom.requireProofPhotoForOnline;
+
+            if (requireProofStrict && !hasAnyImage) {
+                tilEditGcashRef.setError("Proof photo is strictly required by room policy");
+                Snackbar.make(rootView, "Proof photo is mandatory for this room.", Snackbar.LENGTH_LONG).show();
                 hasError = true;
+            } else {
+                boolean valid = PaymentValidationHelper.validateOnlinePaymentProof(
+                        effectivePaymentMethod,
+                        gcashRef,
+                        hasLocalImage,
+                        hasCloudImage
+                );
+                if (!valid) {
+                    tilEditGcashRef.setError("Reference ID or Proof Image is required for online payments");
+                    Snackbar.make(rootView, PaymentValidationHelper.ERROR_ONLINE_PROOF_OR_REF_REQUIRED, Snackbar.LENGTH_LONG).show();
+                    hasError = true;
+                }
             }
         }
 
@@ -362,6 +424,18 @@ public class EditReceiptActivity extends BaseThemedActivity {
         }
 
         selectedPaymentMethod = effectivePaymentMethod;
+
+        // Extract selected reason tag if any
+        String reasonTag = null;
+        if (chipGroupEditReasons != null) {
+            int checkedReasonId = chipGroupEditReasons.getCheckedChipId();
+            if (checkedReasonId != View.NO_ID) {
+                com.google.android.material.chip.Chip checkedChip = findViewById(checkedReasonId);
+                if (checkedChip != null) {
+                    reasonTag = checkedChip.getText().toString().trim();
+                }
+            }
+        }
 
         btnSaveEditReceipt.setEnabled(false);
         loadingOverlay.show("Updating Receipt...", "Updating across all connected devices");
@@ -375,12 +449,14 @@ public class EditReceiptActivity extends BaseThemedActivity {
                 selectedPaymentMethod,
                 gcashRef,
                 purpose,
-                selectedProofPath,
+                isProofRemoved ? null : selectedProofPath,
+                isProofRemoved,
+                reasonTag,
                 new PaymentRepository.ResultCallback<PaymentEntity>() {
                     @Override
                     public void onSuccess(PaymentEntity result) {
                         loadingOverlay.hide();
-                        if (result.proofImagePath != null && !result.proofImagePath.trim().isEmpty()) {
+                        if (result != null && result.proofImagePath != null && !result.proofImagePath.trim().isEmpty() && !isProofRemoved) {
                             CloudImageStorageManager.uploadProofImage(EditReceiptActivity.this, result);
                         }
                         Toast.makeText(EditReceiptActivity.this, "Receipt updated successfully.", Toast.LENGTH_SHORT).show();

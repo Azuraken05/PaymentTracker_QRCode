@@ -585,6 +585,16 @@ public final class FirestoreRealtimeSyncManager {
             boolean requireApproval = approvalVal != null ? approvalVal : (existing == null || existing.requireApproval);
             long keyExpiresAt = safeLong(doc.getLong("keyExpiresAt"), existing != null ? existing.keyExpiresAt : 0L);
 
+            String organizationSubtitle = safeStr(doc.getString("organizationSubtitle"), existing != null ? existing.organizationSubtitle : "");
+            String receiptPrefix = safeStr(doc.getString("receiptPrefix"), existing != null ? existing.receiptPrefix : RoomEntity.DEFAULT_RECEIPT_PREFIX);
+            String receiptFooterNote = safeStr(doc.getString("receiptFooterNote"), existing != null ? existing.receiptFooterNote : "");
+            String enabledPaymentModes = safeStr(doc.getString("enabledPaymentModes"), existing != null ? existing.enabledPaymentModes : RoomEntity.DEFAULT_ENABLED_PAYMENT_MODES);
+            Boolean proofRequiredVal = doc.getBoolean("requireProofPhotoForOnline");
+            boolean requireProofPhotoForOnline = proofRequiredVal != null ? proofRequiredVal : (existing != null && existing.requireProofPhotoForOnline);
+            String defaultJoinRole = safeStr(doc.getString("defaultJoinRole"), existing != null ? existing.defaultJoinRole : RoomEntity.ROLE_AUDITOR);
+            Boolean archivedVal = doc.getBoolean("isArchived");
+            boolean isArchived = archivedVal != null ? archivedVal : (existing != null && existing.isArchived);
+
             if (roomKey.isEmpty()) {
                 return;
             }
@@ -605,11 +615,26 @@ public final class FirestoreRealtimeSyncManager {
                     0,
                     0L
             );
+            entity.organizationSubtitle = organizationSubtitle;
+            entity.receiptPrefix = receiptPrefix;
+            entity.receiptFooterNote = receiptFooterNote;
+            entity.enabledPaymentModes = enabledPaymentModes;
+            entity.requireProofPhotoForOnline = requireProofPhotoForOnline;
+            entity.defaultJoinRole = defaultJoinRole;
+            entity.isArchived = isArchived;
+            if (existing != null) {
+                entity.isCloudRoom = existing.isCloudRoom;
+                entity.cachedForUserId = existing.cachedForUserId;
+            }
+
             db.roomDao().insertOrReplaceRoom(entity);
 
             UserSessionManager session = UserSessionManager.getInstance(appContext);
-            if (roomId.equals(session.getActiveRoomId()) && !signingSecret.isEmpty()) {
-                session.updateActiveRoomSigningSecret(signingSecret);
+            if (roomId.equals(session.getActiveRoomId())) {
+                session.updateActiveRoomName(roomName);
+                if (!signingSecret.isEmpty()) {
+                    session.updateActiveRoomSigningSecret(signingSecret);
+                }
             }
         } catch (Exception ignored) {
         }

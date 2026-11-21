@@ -28,6 +28,8 @@ import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import com.example.qr_paymentscan_cash_n_online.ui.ProofImagePreviewDialog;
+import com.example.qr_paymentscan_cash_n_online.ui.ReceiptEditHistoryBottomSheet;
 import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
@@ -81,7 +83,9 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
     private MaterialButton btnRetryProofUpload;
     private MaterialButton btnEditReceipt;
     private MaterialButton btnVoidPayment;
+    private LinearLayout layoutReceiptEditedBadge;
     private TextView tvReceiptEditedBadge;
+    private TextView tvReceiptCustomFooterNote;
     private LoadingOverlayController loadingOverlay;
 
     @Override
@@ -111,7 +115,18 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         MaterialButton btnSaveReceiptToGallery = findViewById(R.id.btnSaveReceiptToGallery);
         btnEditReceipt = findViewById(R.id.btnEditReceipt);
         btnVoidPayment = findViewById(R.id.btnVoidPayment);
+        layoutReceiptEditedBadge = findViewById(R.id.layoutReceiptEditedBadge);
         tvReceiptEditedBadge = findViewById(R.id.tvReceiptEditedBadge);
+        tvReceiptCustomFooterNote = findViewById(R.id.tvReceiptCustomFooterNote);
+
+        if (layoutReceiptEditedBadge != null) {
+            layoutReceiptEditedBadge.setOnClickListener(v -> {
+                if (currentPayment != null) {
+                    ReceiptEditHistoryBottomSheet.newInstance(currentPayment.receiptId)
+                            .show(getSupportFragmentManager(), "ReceiptEditHistoryBottomSheet");
+                }
+            });
+        }
 
         receiptContainer = findViewById(R.id.receipt_container);
         tvReceiptSectionName = findViewById(R.id.tvReceiptSectionName);
@@ -230,12 +245,17 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
             btnVoidPayment.setVisibility(canVoidOrEdit ? View.VISIBLE : View.GONE);
         }
 
-        if (payment.lastEditedAt > 0L) {
-            tvReceiptEditedBadge.setVisibility(View.VISIBLE);
-            String editor = payment.lastEditedByName != null ? payment.lastEditedByName : "Officer";
-            tvReceiptEditedBadge.setText("Edited by " + editor + " on " + CurrencyFormatter.formatDateTime(payment.lastEditedAt));
-        } else {
-            tvReceiptEditedBadge.setVisibility(View.GONE);
+        boolean isEdited = payment.lastEditedAt > 0L || (payment.updatedAt > payment.createdAt + 2000L);
+        if (layoutReceiptEditedBadge != null) {
+            if (isEdited) {
+                layoutReceiptEditedBadge.setVisibility(View.VISIBLE);
+                String editor = payment.lastEditedByName != null && !payment.lastEditedByName.trim().isEmpty()
+                        ? payment.lastEditedByName : "Officer";
+                long editTime = payment.lastEditedAt > 0L ? payment.lastEditedAt : payment.updatedAt;
+                tvReceiptEditedBadge.setText("Edited by " + editor + " (" + CurrencyFormatter.formatDateTime(editTime) + ") • Tap for history");
+            } else {
+                layoutReceiptEditedBadge.setVisibility(View.GONE);
+            }
         }
 
         String shortSig = payment.qrSignature.length() > 16
@@ -246,6 +266,28 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         Bitmap qrBitmap = SecuritySignatureHelper.generateQrCodeBitmap(payment.qrPayload, 520);
         if (qrBitmap != null) {
             ivReceiptQrCode.setImageBitmap(qrBitmap);
+        }
+
+        String targetRoomId = (payment.roomId != null && !payment.roomId.isEmpty())
+                ? payment.roomId
+                : UserSessionManager.getInstance(this).getActiveRoomId();
+        if (targetRoomId != null && !targetRoomId.isEmpty()) {
+            repository.observeRoomById(targetRoomId).observe(this, room -> {
+                if (room != null) {
+                    if (tvReceiptCustomFooterNote != null) {
+                        if (room.receiptFooterNote != null && !room.receiptFooterNote.trim().isEmpty()) {
+                            tvReceiptCustomFooterNote.setText(room.receiptFooterNote.trim());
+                            tvReceiptCustomFooterNote.setVisibility(View.VISIBLE);
+                        } else {
+                            tvReceiptCustomFooterNote.setVisibility(View.GONE);
+                        }
+                    }
+                    if (room.isArchived) {
+                        btnEditReceipt.setVisibility(View.GONE);
+                        btnVoidPayment.setVisibility(View.GONE);
+                    }
+                }
+            });
         }
 
         String displayProofPath = payment.proofImagePath;
@@ -332,19 +374,7 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
     }
 
     private void showFullProofDialog(File proofFile, String proofUrl) {
-        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_image_viewer, null);
-        ImageView ivFull = dialogView.findViewById(R.id.ivFullProofDialog);
-        if (proofFile != null && proofFile.exists()) {
-            Glide.with(this).load(proofFile).into(ivFull);
-        } else if (proofUrl != null) {
-            Glide.with(this).load(proofUrl).into(ivFull);
-        }
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Proof of Payment")
-                .setView(dialogView)
-                .setPositiveButton("Close", null)
-                .show();
+        ProofImagePreviewDialog.show(this, proofFile, proofUrl);
     }
 
     private void saveReceiptImage(boolean shareAfterSave) {

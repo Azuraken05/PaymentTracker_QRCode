@@ -27,6 +27,7 @@ import com.bumptech.glide.Glide;
 import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
+import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
@@ -34,9 +35,12 @@ import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.PaymentValidationHelper;
+import com.example.qr_paymentscan_cash_n_online.util.RoomPolicyGuard;
+import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.chip.Chip;
 import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
@@ -77,6 +81,7 @@ public class AddPaymentActivity extends BaseThemedActivity {
     private TextView tvProofSavedStatus;
     private MaterialButton btnSubmitPayment;
     private LoadingOverlayController loadingOverlay;
+    private RoomEntity currentRoom;
 
     private String selectedPaymentMethod = PaymentEntity.METHOD_CASH;
     private String savedInternalProofPath = null;
@@ -200,6 +205,57 @@ public class AddPaymentActivity extends BaseThemedActivity {
         });
 
         btnSubmitPayment.setOnClickListener(v -> validateAndSubmitPayment());
+
+        String activeRoomId = UserSessionManager.getInstance(this).getActiveRoomId();
+        if (activeRoomId != null && !activeRoomId.isEmpty()) {
+            repository.observeRoomById(activeRoomId).observe(this, room -> {
+                if (room != null) {
+                    currentRoom = room;
+                    if (room.isArchived) {
+                        RoomPolicyGuard.showArchivedRoomNotice(this);
+                        finish();
+                        return;
+                    }
+                    applyRoomPaymentChannelFilter(room, chipGroupPaymentProviders);
+                }
+            });
+        }
+    }
+
+    private void applyRoomPaymentChannelFilter(RoomEntity room, ChipGroup chipGroup) {
+        Chip chipCash = findViewById(R.id.chipProviderCash);
+        Chip chipGcash = findViewById(R.id.chipProviderGcash);
+        Chip chipMaya = findViewById(R.id.chipProviderMaya);
+        Chip chipGoTyme = findViewById(R.id.chipProviderGoTyme);
+        Chip chipBank = findViewById(R.id.chipProviderBankTransfer);
+
+        boolean cashEnabled = room.isPaymentModeEnabled("CASH");
+        boolean gcashEnabled = room.isPaymentModeEnabled("GCASH");
+        boolean mayaEnabled = room.isPaymentModeEnabled("MAYA");
+        boolean gotymeEnabled = room.isPaymentModeEnabled("GOTYME");
+        boolean bankEnabled = room.isPaymentModeEnabled("BANK");
+
+        if (chipCash != null) chipCash.setVisibility(cashEnabled ? View.VISIBLE : View.GONE);
+        if (chipGcash != null) chipGcash.setVisibility(gcashEnabled ? View.VISIBLE : View.GONE);
+        if (chipMaya != null) chipMaya.setVisibility(mayaEnabled ? View.VISIBLE : View.GONE);
+        if (chipGoTyme != null) chipGoTyme.setVisibility(gotymeEnabled ? View.VISIBLE : View.GONE);
+        if (chipBank != null) chipBank.setVisibility(bankEnabled ? View.VISIBLE : View.GONE);
+
+        int checkedId = chipGroup.getCheckedChipId();
+        View checkedView = findViewById(checkedId);
+        if (checkedView == null || checkedView.getVisibility() == View.GONE) {
+            if (cashEnabled && chipCash != null) {
+                chipCash.setChecked(true);
+            } else if (gcashEnabled && chipGcash != null) {
+                chipGcash.setChecked(true);
+            } else if (mayaEnabled && chipMaya != null) {
+                chipMaya.setChecked(true);
+            } else if (gotymeEnabled && chipGoTyme != null) {
+                chipGoTyme.setChecked(true);
+            } else if (bankEnabled && chipBank != null) {
+                chipBank.setChecked(true);
+            }
+        }
     }
 
     private void launchCameraProofCapture() {
@@ -313,23 +369,33 @@ public class AddPaymentActivity extends BaseThemedActivity {
         if (PaymentValidationHelper.isOnline(effectivePaymentMethod)) {
             String refInput = etGcashRef.getText() != null ? etGcashRef.getText().toString().trim() : "";
             boolean hasLocalImage = savedInternalProofPath != null && new File(savedInternalProofPath).exists();
-            boolean valid = PaymentValidationHelper.validateOnlinePaymentProof(
-                    effectivePaymentMethod,
-                    refInput,
-                    hasLocalImage,
-                    false
-            );
-            if (!valid) {
-                tilGcashRef.setError("Reference ID or Proof Image is required for online payments");
-                tvProofSavedStatus.setText("REQUIRED: Please enter a Reference ID or attach a Proof Photo.");
+
+            boolean requireProofStrict = currentRoom != null && currentRoom.requireProofPhotoForOnline;
+            if (requireProofStrict && !hasLocalImage) {
+                tilGcashRef.setError("Proof photo is strictly required by room policy");
+                tvProofSavedStatus.setText("REQUIRED: This room mandates attaching a Proof Photo.");
                 tvProofSavedStatus.setTextColor(ContextCompat.getColor(this, R.color.status_void_red));
-                Snackbar.make(rootView, PaymentValidationHelper.ERROR_ONLINE_PROOF_OR_REF_REQUIRED, Snackbar.LENGTH_LONG).show();
+                Snackbar.make(rootView, "Proof of payment screenshot is required by room policy.", Snackbar.LENGTH_LONG).show();
                 hasError = true;
             } else {
-                tilGcashRef.setError(null);
-                gcashRef = refInput;
-                if (hasLocalImage) {
-                    proofPath = savedInternalProofPath;
+                boolean valid = PaymentValidationHelper.validateOnlinePaymentProof(
+                        effectivePaymentMethod,
+                        refInput,
+                        hasLocalImage,
+                        false
+                );
+                if (!valid) {
+                    tilGcashRef.setError("Reference ID or Proof Image is required for online payments");
+                    tvProofSavedStatus.setText("REQUIRED: Please enter a Reference ID or attach a Proof Photo.");
+                    tvProofSavedStatus.setTextColor(ContextCompat.getColor(this, R.color.status_void_red));
+                    Snackbar.make(rootView, PaymentValidationHelper.ERROR_ONLINE_PROOF_OR_REF_REQUIRED, Snackbar.LENGTH_LONG).show();
+                    hasError = true;
+                } else {
+                    tilGcashRef.setError(null);
+                    gcashRef = refInput;
+                    if (hasLocalImage) {
+                        proofPath = savedInternalProofPath;
+                    }
                 }
             }
         }

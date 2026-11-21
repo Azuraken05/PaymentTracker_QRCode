@@ -44,6 +44,23 @@ public interface RoomDao {
     @Query("UPDATE rooms SET is_locked = :isLocked, require_approval = :requireApproval, key_expires_at = :keyExpiresAt, updated_at = :updatedAt WHERE room_id = :roomId")
     void updateRoomSecuritySettings(String roomId, boolean isLocked, boolean requireApproval, long keyExpiresAt, long updatedAt);
 
+    @Query("UPDATE rooms SET room_name = :roomName, organization_subtitle = :organizationSubtitle, receipt_prefix = :receiptPrefix, receipt_footer_note = :receiptFooterNote, enabled_payment_modes = :enabledPaymentModes, require_proof_photo_for_online = :requireProofPhoto, default_join_role = :defaultRole, is_archived = :isArchived, updated_at = :updatedAt WHERE room_id = :roomId")
+    void updateRoomSettings(
+            String roomId,
+            String roomName,
+            String organizationSubtitle,
+            String receiptPrefix,
+            String receiptFooterNote,
+            String enabledPaymentModes,
+            boolean requireProofPhoto,
+            String defaultRole,
+            boolean isArchived,
+            long updatedAt
+    );
+
+    @Query("UPDATE rooms SET is_archived = :isArchived, updated_at = :updatedAt WHERE room_id = :roomId")
+    void updateRoomArchivedStatus(String roomId, boolean isArchived, long updatedAt);
+
     @Query("UPDATE rooms SET room_key = :newRoomKey, room_password_hash = :newPasswordHash, room_salt = :newSalt, key_expires_at = :keyExpiresAt, failed_join_count = 0, lockout_until = 0, updated_at = :updatedAt WHERE room_id = :roomId")
     void rotateRoomCredentials(String roomId, String newRoomKey, String newPasswordHash, String newSalt, long keyExpiresAt, long updatedAt);
 

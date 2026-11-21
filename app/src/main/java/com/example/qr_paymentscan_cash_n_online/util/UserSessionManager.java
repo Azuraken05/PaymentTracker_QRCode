@@ -174,6 +174,12 @@ public final class UserSessionManager {
                 .apply();
     }
 
+    public synchronized void updateActiveRoomName(String roomName) {
+        if (roomName != null && !roomName.trim().isEmpty()) {
+            prefs.edit().putString(KEY_ACTIVE_ROOM_NAME, roomName.trim()).apply();
+        }
+    }
+
     public synchronized void updateActiveRoomRole(String role) {
         if (role != null && !role.trim().isEmpty()) {
             prefs.edit().putString(KEY_ACTIVE_ROOM_ROLE, role.trim().toUpperCase()).apply();

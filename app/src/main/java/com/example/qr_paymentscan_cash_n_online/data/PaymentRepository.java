@@ -912,6 +912,145 @@ public class PaymentRepository {
         });
     }
 
+    public void updateRoomSettings(
+            String roomId,
+            String newRoomName,
+            String newOrgSubtitle,
+            String newReceiptPrefix,
+            String newReceiptFooterNote,
+            String newEnabledPaymentModes,
+            boolean newRequireProofPhoto,
+            String newDefaultJoinRole,
+            boolean newIsArchived,
+            ResultCallback<RoomEntity> callback
+    ) {
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            try {
+                if (!sessionManager.isOwner()) {
+                    postError(callback, "Only the Room OWNER can modify room setup and branding.");
+                    return;
+                }
+                String cleanName = newRoomName != null ? newRoomName.trim() : "";
+                if (cleanName.length() < 3 || cleanName.length() > 50) {
+                    postError(callback, "Room name must be between 3 and 50 characters.");
+                    return;
+                }
+                RoomEntity existing = roomDao.findByIdSync(roomId);
+                if (existing == null) {
+                    postError(callback, "Room not found.");
+                    return;
+                }
+
+                String cleanOrg = newOrgSubtitle != null ? newOrgSubtitle.trim() : "";
+                String cleanPrefix = newReceiptPrefix != null ? newReceiptPrefix.replaceAll("[^a-zA-Z0-9]", "").toUpperCase(Locale.US) : RoomEntity.DEFAULT_RECEIPT_PREFIX;
+                if (cleanPrefix.length() < 2 || cleanPrefix.length() > 6) {
+                    cleanPrefix = RoomEntity.DEFAULT_RECEIPT_PREFIX;
+                }
+                String cleanFooter = newReceiptFooterNote != null ? newReceiptFooterNote.trim() : "";
+                if (cleanFooter.length() > 120) {
+                    cleanFooter = cleanFooter.substring(0, 120);
+                }
+                String cleanModes = (newEnabledPaymentModes != null && !newEnabledPaymentModes.trim().isEmpty())
+                        ? newEnabledPaymentModes.trim()
+                        : RoomEntity.DEFAULT_ENABLED_PAYMENT_MODES;
+                String cleanRole = (RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(newDefaultJoinRole))
+                        ? RoomMemberEntity.ROLE_COLLECTOR
+                        : RoomMemberEntity.ROLE_AUDITOR;
+
+                long now = System.currentTimeMillis();
+
+                // Compute audit diff
+                List<String> changes = new ArrayList<>();
+                if (!cleanName.equals(existing.roomName)) {
+                    changes.add("Name: '" + existing.roomName + "' -> '" + cleanName + "'");
+                }
+                if (!cleanOrg.equals(existing.organizationSubtitle)) {
+                    changes.add("Subtitle: '" + existing.organizationSubtitle + "' -> '" + cleanOrg + "'");
+                }
+                if (!cleanPrefix.equals(existing.receiptPrefix)) {
+                    changes.add("Prefix: '" + existing.receiptPrefix + "' -> '" + cleanPrefix + "'");
+                }
+                if (!cleanFooter.equals(existing.receiptFooterNote)) {
+                    changes.add("Footer: updated");
+                }
+                if (!cleanModes.equals(existing.enabledPaymentModes)) {
+                    changes.add("Modes: " + cleanModes);
+                }
+                if (newRequireProofPhoto != existing.requireProofPhotoForOnline) {
+                    changes.add("RequireProofPhoto: " + (newRequireProofPhoto ? "ON" : "OFF"));
+                }
+                if (!cleanRole.equals(existing.defaultJoinRole)) {
+                    changes.add("DefaultRole: " + cleanRole);
+                }
+                if (newIsArchived != existing.isArchived) {
+                    changes.add("Archived: " + (newIsArchived ? "YES" : "NO"));
+                }
+
+                roomDao.updateRoomSettings(
+                        roomId,
+                        cleanName,
+                        cleanOrg,
+                        cleanPrefix,
+                        cleanFooter,
+                        cleanModes,
+                        newRequireProofPhoto,
+                        cleanRole,
+                        newIsArchived,
+                        now
+                );
+
+                RoomEntity updated = roomDao.findByIdSync(roomId);
+                if (updated != null && roomId.equals(sessionManager.getActiveRoomId())) {
+                    sessionManager.updateActiveRoomName(cleanName);
+                }
+
+                // Push directly to Firestore if connected
+                if (FirebaseSyncManager.isFirebaseConfigured(appContext) && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                    try {
+                        Map<String, Object> remoteUpdates = new HashMap<>();
+                        remoteUpdates.put("roomName", cleanName);
+                        remoteUpdates.put("organizationSubtitle", cleanOrg);
+                        remoteUpdates.put("receiptPrefix", cleanPrefix);
+                        remoteUpdates.put("receiptFooterNote", cleanFooter);
+                        remoteUpdates.put("enabledPaymentModes", cleanModes);
+                        remoteUpdates.put("requireProofPhotoForOnline", newRequireProofPhoto);
+                        remoteUpdates.put("defaultJoinRole", cleanRole);
+                        remoteUpdates.put("isArchived", newIsArchived);
+                        remoteUpdates.put("updatedAt", now);
+
+                        Tasks.await(
+                                FirebaseFirestore.getInstance()
+                                        .collection("rooms")
+                                        .document(roomId)
+                                        .set(remoteUpdates, SetOptions.merge()),
+                                10,
+                                TimeUnit.SECONDS
+                        );
+                    } catch (Exception ignored) {
+                    }
+                }
+
+                String diffSummary = changes.isEmpty()
+                        ? "Saved room configuration."
+                        : String.join(" | ", changes);
+
+                insertAttributedAuditLogSync(
+                        AuditLogEntity.ACTION_ROOM_SETTINGS_UPDATED,
+                        null,
+                        cleanName,
+                        null,
+                        "Updated Room Settings for \"" + cleanName + "\": " + diffSummary,
+                        now
+                );
+
+                FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
+                postSuccess(callback, updated);
+            } catch (Exception e) {
+                postError(callback, "Failed to save room settings: " + e.getMessage());
+            }
+        });
+    }
+
     public void rotateRoomKeyAndPassword(
             String roomId,
             String newRawPassword,
@@ -1147,6 +1286,10 @@ public class PaymentRepository {
         return auditLogDao.observeLogsBySection(sectionId);
     }
 
+    public LiveData<List<AuditLogEntity>> observeAuditLogsByReceiptId(String receiptId) {
+        return auditLogDao.observeLogsByReceiptId(receiptId);
+    }
+
     public void createSection(String sectionName, String description, ResultCallback<SectionEntity> callback) {
         createSection(sectionName, description, null, callback);
     }
@@ -1175,6 +1318,11 @@ public class PaymentRepository {
                     }
                 }
                 String activeRoomId = sessionManager.getActiveRoomId();
+                RoomEntity activeRoom = (activeRoomId != null) ? roomDao.findByIdSync(activeRoomId) : null;
+                if (activeRoom != null && activeRoom.isArchived) {
+                    postError(callback, "This room is archived and read-only. Cannot create new folders.");
+                    return;
+                }
                 SectionEntity existing = sectionDao.findSiblingByNameSync(activeRoomId, parentFolderId, cleanName);
                 if (existing != null) {
                     postError(callback, "A folder named \"" + cleanName + "\" already exists at this level.");
@@ -1774,8 +1922,16 @@ public class PaymentRepository {
                     return;
                 }
 
+                String activeRoomId = section.roomId != null ? section.roomId : sessionManager.getActiveRoomId();
+                RoomEntity activeRoom = (activeRoomId != null) ? roomDao.findByIdSync(activeRoomId) : null;
+                if (activeRoom != null && activeRoom.isArchived) {
+                    postError(callback, "This room is archived and read-only. Cannot record new payments.");
+                    return;
+                }
+
+                String receiptPrefix = activeRoom != null ? activeRoom.getCleanReceiptPrefix() : RoomEntity.DEFAULT_RECEIPT_PREFIX;
                 long createdAt = System.currentTimeMillis();
-                String receiptId = SecuritySignatureHelper.generateUniqueReceiptId(createdAt);
+                String receiptId = SecuritySignatureHelper.generateUniqueReceiptId(receiptPrefix, createdAt);
                 String signature = SecuritySignatureHelper.computeReceiptSignature(
                         appContext,
                         receiptId,
@@ -1791,7 +1947,6 @@ public class PaymentRepository {
                         ? studentNumber.trim()
                         : null;
 
-                String activeRoomId = section.roomId != null ? section.roomId : sessionManager.getActiveRoomId();
                 String actorUserId = sessionManager.getCurrentUserId();
                 String actorName = sessionManager.getCurrentUserName();
                 String actorRole = sessionManager.getActiveRoomRole();
@@ -1916,6 +2071,12 @@ public class PaymentRepository {
                     postError(callback, "Receipt record not found in local database.");
                     return;
                 }
+                String activeRoomId = existing.roomId != null ? existing.roomId : sessionManager.getActiveRoomId();
+                RoomEntity activeRoom = (activeRoomId != null) ? roomDao.findByIdSync(activeRoomId) : null;
+                if (activeRoom != null && activeRoom.isArchived) {
+                    postError(callback, "This room is archived and read-only. Cannot void payment receipts.");
+                    return;
+                }
                 if (existing.isVoided()) {
                     postError(callback, "This receipt has already been voided.");
                     return;
@@ -1973,8 +2134,13 @@ public class PaymentRepository {
                     postError(callback, "Section folder not found.");
                     return;
                 }
-                long now = System.currentTimeMillis();
                 String activeRoomId = section.roomId != null ? section.roomId : sessionManager.getActiveRoomId();
+                RoomEntity activeRoom = (activeRoomId != null) ? roomDao.findByIdSync(activeRoomId) : null;
+                if (activeRoom != null && activeRoom.isArchived) {
+                    postError(callback, "This room is archived and read-only. Cannot record expenses.");
+                    return;
+                }
+                long now = System.currentTimeMillis();
                 String actorUserId = sessionManager.getCurrentUserId();
                 String actorName = sessionManager.getCurrentUserName();
                 String actorRole = sessionManager.getActiveRoomRole();
@@ -2123,6 +2289,36 @@ public class PaymentRepository {
             String newProofImagePath,
             ResultCallback<PaymentEntity> callback
     ) {
+        updateReceipt(
+                receiptId,
+                newFirstName,
+                newLastName,
+                newStudentNumber,
+                newAmount,
+                newPaymentMethod,
+                newGcashRef,
+                newPurpose,
+                newProofImagePath,
+                false,
+                null,
+                callback
+        );
+    }
+
+    public void updateReceipt(
+            String receiptId,
+            String newFirstName,
+            String newLastName,
+            String newStudentNumber,
+            double newAmount,
+            String newPaymentMethod,
+            String newGcashRef,
+            String newPurpose,
+            String newProofImagePath,
+            boolean removeProofPhoto,
+            String editReasonTag,
+            ResultCallback<PaymentEntity> callback
+    ) {
         AppDatabase.DB_EXECUTOR.execute(() -> {
             try {
                 if (!sessionManager.canVoidOrEditRecords()) {
@@ -2133,6 +2329,12 @@ public class PaymentRepository {
                 PaymentEntity existing = paymentDao.findByReceiptIdSync(receiptId);
                 if (existing == null) {
                     postError(callback, "Receipt not found.");
+                    return;
+                }
+                String activeRoomId = existing.roomId != null ? existing.roomId : sessionManager.getActiveRoomId();
+                RoomEntity activeRoom = (activeRoomId != null) ? roomDao.findByIdSync(activeRoomId) : null;
+                if (activeRoom != null && activeRoom.isArchived) {
+                    postError(callback, "This room is archived and read-only. Cannot edit receipts.");
                     return;
                 }
                 if (existing.isVoided()) {
@@ -2187,12 +2389,13 @@ public class PaymentRepository {
                         );
 
                 if (!newIdentityKey.equals(oldIdentityKey)) {
-                    List<PaymentEntity> duplicates = paymentDao.findActiveDuplicatesForStudentSync(
+                    List<PaymentEntity> duplicates = paymentDao.findActiveDuplicatesForStudentExcludingReceiptSync(
                             existing.sectionId,
                             newIdentityKey,
                             cleanStudentNo != null ? cleanStudentNo : "",
                             DuplicatePaymentGuard.normalizeText(cleanFirst),
-                            DuplicatePaymentGuard.normalizeText(cleanLast)
+                            DuplicatePaymentGuard.normalizeText(cleanLast),
+                            receiptId
                     );
                     for (PaymentEntity d : duplicates) {
                         if (!d.receiptId.equals(receiptId) && !d.isVoided()) {
@@ -2229,12 +2432,22 @@ public class PaymentRepository {
                 String newQrPayload = SecuritySignatureHelper.buildQrPayload(receiptId, newQrSig);
 
                 // Proof image handling
-                String finalProofPath = newProofImagePath != null ? newProofImagePath : existing.proofImagePath;
-                String finalProofUrl = existing.proofImageUrl;
-                String imageSyncStatus = existing.imageSyncStatus != null ? existing.imageSyncStatus : PaymentEntity.IMAGE_STATUS_NONE;
-                if (newProofImagePath != null && !newProofImagePath.equals(existing.proofImagePath)) {
-                    imageSyncStatus = PaymentEntity.IMAGE_STATUS_PENDING_UPLOAD;
+                String finalProofPath;
+                String finalProofUrl;
+                String imageSyncStatus;
+
+                if (removeProofPhoto) {
+                    finalProofPath = null;
                     finalProofUrl = null;
+                    imageSyncStatus = PaymentEntity.IMAGE_STATUS_NONE;
+                } else if (newProofImagePath != null && !newProofImagePath.equals(existing.proofImagePath)) {
+                    finalProofPath = newProofImagePath;
+                    finalProofUrl = null;
+                    imageSyncStatus = PaymentEntity.IMAGE_STATUS_PENDING_UPLOAD;
+                } else {
+                    finalProofPath = existing.proofImagePath;
+                    finalProofUrl = existing.proofImageUrl;
+                    imageSyncStatus = existing.imageSyncStatus != null ? existing.imageSyncStatus : PaymentEntity.IMAGE_STATUS_NONE;
                 }
 
                 long now = System.currentTimeMillis();
@@ -2257,10 +2470,18 @@ public class PaymentRepository {
                 if (cleanStudentNo != null && !cleanStudentNo.equals(existing.studentNumber)) {
                     diffs.add("Student No: " + (existing.studentNumber != null ? existing.studentNumber : "none") + " -> " + cleanStudentNo);
                 }
+                if (removeProofPhoto) {
+                    diffs.add("Proof photo removed");
+                } else if (newProofImagePath != null && !newProofImagePath.equals(existing.proofImagePath)) {
+                    diffs.add("Proof photo replaced");
+                }
                 if (diffs.isEmpty()) {
                     diffs.add("Proof photo / metadata updated");
                 }
-                String diffSummary = "Edited Receipt " + receiptId + ": " + String.join(", ", diffs);
+                if (editReasonTag != null && !editReasonTag.trim().isEmpty()) {
+                    diffs.add("Reason: " + editReasonTag.trim());
+                }
+                String diffSummary = "Edited Receipt " + receiptId + ": " + String.join(" | ", diffs);
 
                 // Update duplicate locks in Firestore if identity changed
                 String targetRoomId = existing.roomId != null ? existing.roomId : sessionManager.getActiveRoomId();
@@ -2305,7 +2526,7 @@ public class PaymentRepository {
                                 targetRoomId,
                                 dummyForLock,
                                 targetFee,
-                                false
+                                true
                         );
                     } catch (Exception ignoredLockErr) {
                     }
@@ -2346,6 +2567,46 @@ public class PaymentRepository {
                 );
 
                 PaymentEntity updated = paymentDao.findByReceiptIdSync(receiptId);
+
+                // Push edited fields directly to Firestore with merge to keep all connected devices in sync immediately
+                if (targetRoomId != null && !targetRoomId.isEmpty()
+                        && FirebaseSyncManager.isFirebaseConfigured(appContext)
+                        && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                    try {
+                        Map<String, Object> updates = new HashMap<>();
+                        updates.put("firstName", cleanFirst);
+                        updates.put("lastName", cleanLast);
+                        updates.put("studentFullName", cleanFirst + " " + cleanLast);
+                        updates.put("studentNumber", cleanStudentNo != null ? cleanStudentNo : "");
+                        updates.put("amount", newAmount);
+                        updates.put("paymentMethod", cleanMethod);
+                        updates.put("gcashReferenceNo", cleanRef != null ? cleanRef : "");
+                        updates.put("purpose", cleanPurpose);
+                        updates.put("proofImagePath", finalProofPath != null ? finalProofPath : "");
+                        updates.put("proofImageUrl", finalProofUrl != null ? finalProofUrl : "");
+                        updates.put("imageSyncStatus", imageSyncStatus);
+                        updates.put("remainingBalance", remainingBalance);
+                        updates.put("paymentStatus", paymentStatus);
+                        updates.put("status", PaymentEntity.STATUS_PAID);
+                        updates.put("studentIdentityKey", newIdentityKey);
+                        updates.put("qrSignature", newQrSig);
+                        updates.put("qrPayload", newQrPayload);
+                        updates.put("lastEditedByName", editorName);
+                        updates.put("lastEditedAt", now);
+                        updates.put("updatedAt", now);
+
+                        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                .collection("rooms").document(targetRoomId)
+                                .collection("payments").document(receiptId)
+                                .set(updates, com.google.firebase.firestore.SetOptions.merge());
+
+                        com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                                .collection("payments").document(receiptId)
+                                .set(updates, com.google.firebase.firestore.SetOptions.merge());
+                    } catch (Exception ignoredSyncErr) {
+                    }
+                }
+
                 FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
                 postSuccess(callback, updated);
             } catch (Exception e) {

@@ -147,6 +147,17 @@
                     app:tint="@color/white" />
             </LinearLayout>
 
+            <!-- Optional Organization / Subtitle Text -->
+            <TextView
+                android:id="@+id/tvMainOrgSubtitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:textColor="#DCE7FF"
+                android:textSize="11sp"
+                android:textStyle="italic"
+                android:visibility="gone" />
+
             <!-- Quick Action Toolbar Card (No Financial Figures) -->
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"

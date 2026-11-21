@@ -119,8 +119,20 @@ public final class DuplicatePaymentGuard {
         return SecuritySignatureHelper.sha256Hex("LOCK|" + canonicalKey);
     }
 
+    public static DuplicateCheckResult checkDuplicateBeforeSubmission(
+            Context context,
+            long sectionId,
+            String studentNumber,
+            String firstName,
+            String lastName,
+            String purpose
+    ) {
+        return checkDuplicateBeforeSubmission(context, sectionId, studentNumber, firstName, lastName, purpose, null);
+    }
+
     /**
      * Performs a two-tier pre-submission duplicate check (Local Room + Live Firestore Source.SERVER).
+     * Accepts excludeReceiptId so receipt edits don't self-collide.
      * Must be called on a background thread.
      */
     public static DuplicateCheckResult checkDuplicateBeforeSubmission(
@@ -129,7 +141,8 @@ public final class DuplicatePaymentGuard {
             String studentNumber,
             String firstName,
             String lastName,
-            String purpose
+            String purpose,
+            String excludeReceiptId
     ) {
         AppDatabase db = AppDatabase.getInstance(context);
         SectionEntity section = db.sectionDao().findByIdSync(sectionId);
@@ -142,12 +155,13 @@ public final class DuplicatePaymentGuard {
         String normPurpose = normalizeText(purpose);
 
         PaymentDao paymentDao = db.paymentDao();
-        List<PaymentEntity> localCandidates = paymentDao.findActiveDuplicatesForStudentSync(
+        List<PaymentEntity> localCandidates = paymentDao.findActiveDuplicatesForStudentExcludingReceiptSync(
                 sectionId,
                 identityKey,
                 normStudentNo,
                 normFirst,
-                normLast
+                normLast,
+                excludeReceiptId
         );
 
         PaymentEntity matchedLocal = pickBestMatchingCandidate(
@@ -157,7 +171,8 @@ public final class DuplicatePaymentGuard {
                 normFirst,
                 normLast,
                 normPurpose,
-                targetFee
+                targetFee,
+                excludeReceiptId
         );
         if (matchedLocal != null) {
             return DuplicateCheckResult.found(matchedLocal);
@@ -179,6 +194,10 @@ public final class DuplicatePaymentGuard {
                 );
                 if (serverSnapshot != null && !serverSnapshot.isEmpty()) {
                     for (DocumentSnapshot doc : serverSnapshot.getDocuments()) {
+                        String docReceiptId = getString(doc, "receiptId", doc.getId());
+                        if (excludeReceiptId != null && excludeReceiptId.equals(docReceiptId)) {
+                            continue;
+                        }
                         String status = getString(doc, "status", PaymentEntity.STATUS_PAID);
                         if (PaymentEntity.STATUS_VOIDED.equalsIgnoreCase(status)) {
                             continue;
@@ -231,13 +250,17 @@ public final class DuplicatePaymentGuard {
             String normFirst,
             String normLast,
             String normPurpose,
-            double targetFee
+            double targetFee,
+            String excludeReceiptId
     ) {
         if (candidates == null || candidates.isEmpty()) {
             return null;
         }
         for (PaymentEntity candidate : candidates) {
             if (candidate == null || candidate.isVoided()) {
+                continue;
+            }
+            if (excludeReceiptId != null && excludeReceiptId.equals(candidate.receiptId)) {
                 continue;
             }
             String candFirst = normalizeText(candidate.firstName);

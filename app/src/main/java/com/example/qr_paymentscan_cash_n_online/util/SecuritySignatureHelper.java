@@ -47,12 +47,22 @@ public final class SecuritySignatureHelper {
     }
 
     public static String generateUniqueReceiptId(long timestampMillis) {
+        return generateUniqueReceiptId("RCP", timestampMillis);
+    }
+
+    public static String generateUniqueReceiptId(String prefix, long timestampMillis) {
+        String cleanPrefix = (prefix != null && !prefix.trim().isEmpty())
+                ? prefix.replaceAll("[^a-zA-Z0-9]", "").toUpperCase(Locale.US)
+                : "RCP";
+        if (cleanPrefix.length() < 2) cleanPrefix = "RCP";
+        if (cleanPrefix.length() > 6) cleanPrefix = cleanPrefix.substring(0, 6);
+
         SimpleDateFormat dateFmt = new SimpleDateFormat("yyyyMMdd", Locale.US);
         String datePart = dateFmt.format(new Date(timestampMillis));
         byte[] randomBytes = new byte[3];
         SECURE_RANDOM.nextBytes(randomBytes);
         String hexPart = bytesToHex(randomBytes).toUpperCase(Locale.US);
-        return "RCP-" + datePart + "-" + hexPart;
+        return cleanPrefix + "-" + datePart + "-" + hexPart;
     }
 
     /**

@@ -37,6 +37,7 @@ import com.example.qr_paymentscan_cash_n_online.data.AuditLogEntity;
 import com.example.qr_paymentscan_cash_n_online.data.ExpenseEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
+import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.SectionEntity;
 import com.example.qr_paymentscan_cash_n_online.sync.FirebaseSyncManager;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
@@ -47,6 +48,7 @@ import com.example.qr_paymentscan_cash_n_online.ui.SectionAdapter;
 import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
+import com.example.qr_paymentscan_cash_n_online.util.RoomPolicyGuard;
 import com.example.qr_paymentscan_cash_n_online.util.SectionFinancialCalculator;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
@@ -76,6 +78,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
     private long sectionId;
     private String sectionName = "";
     private SectionEntity currentSection;
+    private RoomEntity currentRoom;
     private PaymentRepository repository;
     private UserSessionManager sessionManager;
     private SectionAdapter subfolderAdapter;
@@ -361,8 +364,9 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void applyRolePermissionsUi() {
-        boolean canWrite = sessionManager.canCreateOrEditRecords();
-        boolean canDeleteOrVoid = sessionManager.canVoidOrDeleteOrManageMembers();
+        boolean isArchived = currentRoom != null && currentRoom.isArchived;
+        boolean canWrite = !isArchived && sessionManager.canCreateOrEditRecords();
+        boolean canDeleteOrVoid = !isArchived && sessionManager.canVoidOrDeleteOrManageMembers();
         boolean isCurrentSubfolder = currentSection != null && currentSection.isSubfolder();
 
         btnRenameSectionTop.setVisibility(canWrite ? View.VISIBLE : View.GONE);
@@ -384,6 +388,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void openAddPaymentScreen() {
+        if (currentRoom != null && currentRoom.isArchived) {
+            RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canCreateOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -395,6 +403,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void openAddExpenseScreen() {
+        if (currentRoom != null && currentRoom.isArchived) {
+            RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canCreateOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -473,6 +485,13 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void observeSectionData() {
+        String activeRoomId = sessionManager.getActiveRoomId();
+        if (activeRoomId != null) {
+            repository.observeRoomById(activeRoomId).observe(this, room -> {
+                currentRoom = room;
+                applyRolePermissionsUi();
+            });
+        }
         repository.observeSectionById(sectionId).observe(this, section -> {
             if (section == null) {
                 if (!isFinishing() && !isDestroyed()) {
@@ -498,13 +517,20 @@ public class SectionDetailActivity extends BaseThemedActivity {
             }
 
             // Subfolder Merge to Parent Toggle Card
-            if (section.isSubfolder() && sessionManager.canCreateOrEditRecords()) {
+            boolean isArchived = currentRoom != null && currentRoom.isArchived;
+            if (section.isSubfolder() && sessionManager.canCreateOrEditRecords() && !isArchived) {
                 cardSubfolderMergeControl.setVisibility(View.VISIBLE);
                 switchSubfolderMergeGross.setOnCheckedChangeListener(null);
                 switchSubfolderMergeGross.setChecked(section.mergeGrossToParent);
                 updateMergeDesc(section.mergeGrossToParent);
 
                 switchSubfolderMergeGross.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                    if (currentRoom != null && currentRoom.isArchived) {
+                        switchSubfolderMergeGross.setOnCheckedChangeListener(null);
+                        switchSubfolderMergeGross.setChecked(!isChecked);
+                        RoomPolicyGuard.showArchivedRoomNotice(this);
+                        return;
+                    }
                     updateMergeDesc(isChecked);
                     repository.updateFolderMergeGross(sectionId, isChecked, new PaymentRepository.ResultCallback<SectionEntity>() {
                         @Override
@@ -701,6 +727,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void showCreateSubfolderDialog() {
+        if (currentRoom != null && currentRoom.isArchived) {
+            RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canCreateOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -765,6 +795,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void showRenameFolderDialog(long targetFolderId, String currentFolderName) {
+        if (currentRoom != null && currentRoom.isArchived) {
+            RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canCreateOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access and cannot rename folders.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -812,6 +846,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void confirmDeleteFolder(long targetFolderId) {
+        if (currentRoom != null && currentRoom.isArchived) {
+            RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canVoidOrDeleteOrManageMembers()) {
             Snackbar.make(rootView, "Only the Room OWNER can permanently delete folders.", Snackbar.LENGTH_SHORT).show();
             return;
@@ -861,6 +899,10 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void showVoidExpenseDialog(ExpenseEntity expense) {
+        if (currentRoom != null && currentRoom.isArchived) {
+            RoomPolicyGuard.showArchivedRoomNotice(this);
+            return;
+        }
         if (!sessionManager.canVoidOrEditRecords()) {
             Snackbar.make(rootView, "Auditors have read-only access and cannot void expense deductions.", Snackbar.LENGTH_SHORT).show();
             return;

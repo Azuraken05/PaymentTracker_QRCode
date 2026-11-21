@@ -306,19 +306,56 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
+                        android:clickable="true"
+                        android:focusable="true"
                         android:visibility="gone"
                         app:cardCornerRadius="12dp"
                         app:strokeColor="?attr/colorOutlineVariant"
                         app:strokeWidth="1dp">
 
-                        <ImageView
-                            android:id="@+id/ivEditProofThumbnail"
+                        <FrameLayout
                             android:layout_width="match_parent"
-                            android:layout_height="180dp"
-                            android:contentDescription="Proof Photo"
-                            android:scaleType="centerCrop" />
+                            android:layout_height="180dp">
+
+                            <ImageView
+                                android:id="@+id/ivEditProofThumbnail"
+                                android:layout_width="match_parent"
+                                android:layout_height="match_parent"
+                                android:contentDescription="Proof Photo (Tap to Enlarge)"
+                                android:scaleType="centerCrop" />
+
+                            <LinearLayout
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_gravity="bottom|end"
+                                android:layout_margin="8dp"
+                                android:background="@drawable/bg_badge_pill"
+                                android:backgroundTint="#B30F172A"
+                                android:gravity="center_vertical"
+                                android:orientation="horizontal"
+                                android:paddingHorizontal="8dp"
+                                android:paddingVertical="4dp">
+
+                                <ImageView
+                                    android:layout_width="14dp"
+                                    android:layout_height="14dp"
+                                    android:contentDescription="Zoom"
+                                    android:src="@drawable/ic_zoom_in"
+                                    app:tint="@color/white" />
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginStart="4dp"
+                                    android:text="Tap to Zoom"
+                                    android:textColor="@color/white"
+                                    android:textSize="11sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </FrameLayout>
                     </com.google.android.material.card.MaterialCardView>
 
+                    <!-- Proof Action Buttons: Gallery, Camera, Remove Photo -->
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -331,24 +368,116 @@
                             style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="0dp"
                             android:layout_height="44dp"
-                            android:layout_marginEnd="6dp"
+                            android:layout_marginEnd="4dp"
                             android:layout_weight="1"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:singleLine="true"
                             android:text="Gallery"
-                            android:textSize="12sp"
+                            android:textSize="11sp"
                             app:icon="@drawable/ic_download"
-                            app:iconSize="16dp" />
+                            app:iconSize="15dp" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/btnEditCaptureCameraProof"
                             style="@style/Widget.Material3.Button.TonalButton"
                             android:layout_width="0dp"
                             android:layout_height="44dp"
+                            android:layout_marginHorizontal="2dp"
                             android:layout_weight="1"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:singleLine="true"
                             android:text="Camera"
-                            android:textSize="12sp"
-                            app:icon="@drawable/ic_qr_code_scanner"
-                            app:iconSize="16dp" />
+                            android:textSize="11sp"
+                            app:icon="@drawable/ic_add_a_photo"
+                            app:iconSize="15dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/btnEditRemoveProof"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="44dp"
+                            android:layout_marginStart="4dp"
+                            android:layout_weight="1"
+                            android:ellipsize="end"
+                            android:maxLines="1"
+                            android:singleLine="true"
+                            android:text="Remove"
+                            android:textColor="@color/status_void_red"
+                            android:textSize="11sp"
+                            android:visibility="gone"
+                            app:icon="@drawable/ic_delete_outline"
+                            app:iconSize="15dp"
+                            app:iconTint="@color/status_void_red"
+                            app:strokeColor="@color/status_void_red" />
                     </LinearLayout>
+
+                    <!-- Quick Edit Reason Section -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="20dp"
+                        android:text="Reason for Correction"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="12sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipGroupEditReasons"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipReasonTypo"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Typo in Name"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipReasonAmount"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Wrong Amount"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipReasonMode"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Wrong Payment Mode"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipReasonProof"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Updated Proof Photo"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipReasonRef"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Wrong Reference ID"
+                            android:textSize="12sp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipReasonOther"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Other"
+                            android:textSize="12sp" />
+                    </com.google.android.material.chip.ChipGroup>
 
                     <!-- Save Changes Button -->
                     <com.google.android.material.button.MaterialButton

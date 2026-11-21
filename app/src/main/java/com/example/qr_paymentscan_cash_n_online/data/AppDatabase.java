@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
                 RosterStudentEntity.class,
                 AuditLogEntity.class
         },
-        version = 8,
+        version = 9,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -261,6 +261,25 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * Explicit Non-Destructive Room Migration from version 8 to version 9.
+     * Adds Room Settings Suite columns: organization_subtitle, receipt_prefix, receipt_footer_note,
+     * enabled_payment_modes, require_proof_photo_for_online, default_join_role, is_archived
+     * while preserving 100% of existing local records.
+     */
+    public static final Migration MIGRATION_8_9 = new Migration(8, 9) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            db.execSQL("ALTER TABLE rooms ADD COLUMN organization_subtitle TEXT NOT NULL DEFAULT ''");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN receipt_prefix TEXT NOT NULL DEFAULT 'RCP'");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN receipt_footer_note TEXT NOT NULL DEFAULT ''");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN enabled_payment_modes TEXT NOT NULL DEFAULT 'CASH,GCASH,MAYA,GOTYME,BANK'");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN require_proof_photo_for_online INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN default_join_role TEXT NOT NULL DEFAULT 'AUDITOR'");
+            db.execSQL("ALTER TABLE rooms ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0");
+        }
+    };
+
     public static AppDatabase getInstance(final Context context) {
         if (INSTANCE == null) {
             synchronized (AppDatabase.class) {
@@ -270,7 +289,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "payment_tracker_db"
                             )
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
                             .build();
                 }
             }

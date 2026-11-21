@@ -36,11 +36,18 @@ service cloud.firestore {
           && isRoomOwner(roomId);
     }
 
-    // Helper: True if caller is an ACTIVE OWNER or COLLECTOR
+    // Helper: Returns true if room is not archived (isArchived != true)
+    function isRoomNotArchived(roomId) {
+      return !exists(/databases/$(database)/documents/rooms/$(roomId))
+          || get(/databases/$(database)/documents/rooms/$(roomId)).data.get('isArchived', false) != true;
+    }
+
+    // Helper: True if caller is an ACTIVE OWNER or COLLECTOR and room is not archived
     function canWriteRecords(roomId) {
-      return isRoomOwner(roomId)
-          || (isActiveMember(roomId)
-              && (memberDoc(roomId).data.role == 'OWNER' || memberDoc(roomId).data.role == 'COLLECTOR'));
+      return isRoomNotArchived(roomId)
+          && (isRoomOwner(roomId)
+              || (isActiveMember(roomId)
+                  && (memberDoc(roomId).data.role == 'OWNER' || memberDoc(roomId).data.role == 'COLLECTOR')));
     }
 
     // 1. Private Rooms Collection

@@ -89,6 +89,28 @@ public class RoomMembersActivity extends BaseThemedActivity {
     private MaterialButton btnShareInvite;
     private MaterialButton btnShowRoomQr;
 
+    // Room Profile & Branding Card
+    private MaterialCardView cardRoomProfileSettings;
+    private TextView tvRoomProfileOwnerBadge;
+    private TextInputLayout tilSettingsRoomName;
+    private TextInputEditText etSettingsRoomName;
+    private TextInputLayout tilSettingsOrgSubtitle;
+    private TextInputEditText etSettingsOrgSubtitle;
+    private TextInputLayout tilSettingsReceiptPrefix;
+    private TextInputEditText etSettingsReceiptPrefix;
+    private TextInputLayout tilSettingsReceiptFooter;
+    private TextInputEditText etSettingsReceiptFooter;
+    private MaterialButton btnSaveRoomProfile;
+
+    // Collection & Member Setup Card
+    private MaterialCardView cardCollectionSetup;
+    private ChipGroup chipGroupPaymentChannels;
+    private Chip chipModeCash, chipModeGcash, chipModeMaya, chipModeGoTyme, chipModeBank;
+    private MaterialSwitch switchRequireProofOnline;
+    private ChipGroup chipGroupDefaultRole;
+    private Chip chipDefaultAuditor, chipDefaultCollector;
+    private MaterialSwitch switchArchiveRoom;
+
     // Access Controls Card
     private MaterialCardView cardAccessControlToggles;
     private MaterialSwitch switchRequireApproval;
@@ -209,6 +231,31 @@ public class RoomMembersActivity extends BaseThemedActivity {
         btnShareInvite = findViewById(R.id.btnShareInvite);
         btnShowRoomQr = findViewById(R.id.btnShowRoomQr);
 
+        cardRoomProfileSettings = findViewById(R.id.cardRoomProfileSettings);
+        tvRoomProfileOwnerBadge = findViewById(R.id.tvRoomProfileOwnerBadge);
+        tilSettingsRoomName = findViewById(R.id.tilSettingsRoomName);
+        etSettingsRoomName = findViewById(R.id.etSettingsRoomName);
+        tilSettingsOrgSubtitle = findViewById(R.id.tilSettingsOrgSubtitle);
+        etSettingsOrgSubtitle = findViewById(R.id.etSettingsOrgSubtitle);
+        tilSettingsReceiptPrefix = findViewById(R.id.tilSettingsReceiptPrefix);
+        etSettingsReceiptPrefix = findViewById(R.id.etSettingsReceiptPrefix);
+        tilSettingsReceiptFooter = findViewById(R.id.tilSettingsReceiptFooter);
+        etSettingsReceiptFooter = findViewById(R.id.etSettingsReceiptFooter);
+        btnSaveRoomProfile = findViewById(R.id.btnSaveRoomProfile);
+
+        cardCollectionSetup = findViewById(R.id.cardCollectionSetup);
+        chipGroupPaymentChannels = findViewById(R.id.chipGroupPaymentChannels);
+        chipModeCash = findViewById(R.id.chipModeCash);
+        chipModeGcash = findViewById(R.id.chipModeGcash);
+        chipModeMaya = findViewById(R.id.chipModeMaya);
+        chipModeGoTyme = findViewById(R.id.chipModeGoTyme);
+        chipModeBank = findViewById(R.id.chipModeBank);
+        switchRequireProofOnline = findViewById(R.id.switchRequireProofOnline);
+        chipGroupDefaultRole = findViewById(R.id.chipGroupDefaultRole);
+        chipDefaultAuditor = findViewById(R.id.chipDefaultAuditor);
+        chipDefaultCollector = findViewById(R.id.chipDefaultCollector);
+        switchArchiveRoom = findViewById(R.id.switchArchiveRoom);
+
         cardAccessControlToggles = findViewById(R.id.cardAccessControlToggles);
         switchRequireApproval = findViewById(R.id.switchRequireApproval);
         switchEmergencyLock = findViewById(R.id.switchEmergencyLock);
@@ -245,6 +292,31 @@ public class RoomMembersActivity extends BaseThemedActivity {
         btnCopyInviteKey.setOnClickListener(v -> copyInviteKeyOnly());
         btnShareInvite.setOnClickListener(v -> shareInviteIntent());
         btnShowRoomQr.setOnClickListener(v -> showRoomQrModalDialog());
+
+        if (btnSaveRoomProfile != null) {
+            btnSaveRoomProfile.setOnClickListener(v -> saveRoomProfileAndSettings());
+        }
+
+        if (switchArchiveRoom != null) {
+            switchArchiveRoom.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isUpdatingSwitches || currentRoom == null) return;
+                if (isChecked) {
+                    new MaterialAlertDialogBuilder(this)
+                            .setTitle("Archive Room (Read-Only Freeze)?")
+                            .setMessage("Freezes this room so no new payments, expenses, or folders can be added, while preserving all receipts, QR verification, and Excel exports.")
+                            .setPositiveButton("Archive Room", (d, w) -> saveRoomProfileAndSettings())
+                            .setNegativeButton("Cancel", (d, w) -> {
+                                isUpdatingSwitches = true;
+                                switchArchiveRoom.setChecked(false);
+                                isUpdatingSwitches = false;
+                            })
+                            .setCancelable(false)
+                            .show();
+                } else {
+                    saveRoomProfileAndSettings();
+                }
+            });
+        }
 
         switchRequireApproval.setOnCheckedChangeListener((buttonView, isChecked) -> {
             if (isUpdatingSwitches || currentRoom == null) return;
@@ -619,6 +691,142 @@ public class RoomMembersActivity extends BaseThemedActivity {
         if (cardDangerZone != null) {
             cardDangerZone.setVisibility(isOwner ? View.VISIBLE : View.GONE);
         }
+
+        // Room Profile & Setup Controls
+        if (currentRoom != null) {
+            isUpdatingSwitches = true;
+            if (etSettingsRoomName != null && !etSettingsRoomName.hasFocus()) {
+                etSettingsRoomName.setText(currentRoom.roomName);
+            }
+            if (etSettingsOrgSubtitle != null && !etSettingsOrgSubtitle.hasFocus()) {
+                etSettingsOrgSubtitle.setText(currentRoom.organizationSubtitle != null ? currentRoom.organizationSubtitle : "");
+            }
+            if (etSettingsReceiptPrefix != null && !etSettingsReceiptPrefix.hasFocus()) {
+                etSettingsReceiptPrefix.setText(currentRoom.getCleanReceiptPrefix());
+            }
+            if (etSettingsReceiptFooter != null && !etSettingsReceiptFooter.hasFocus()) {
+                etSettingsReceiptFooter.setText(currentRoom.receiptFooterNote != null ? currentRoom.receiptFooterNote : "");
+            }
+
+            if (chipModeCash != null) chipModeCash.setChecked(currentRoom.isPaymentModeEnabled("CASH"));
+            if (chipModeGcash != null) chipModeGcash.setChecked(currentRoom.isPaymentModeEnabled("GCASH"));
+            if (chipModeMaya != null) chipModeMaya.setChecked(currentRoom.isPaymentModeEnabled("MAYA"));
+            if (chipModeGoTyme != null) chipModeGoTyme.setChecked(currentRoom.isPaymentModeEnabled("GOTYME"));
+            if (chipModeBank != null) chipModeBank.setChecked(currentRoom.isPaymentModeEnabled("BANK"));
+
+            if (switchRequireProofOnline != null) {
+                switchRequireProofOnline.setChecked(currentRoom.requireProofPhotoForOnline);
+            }
+
+            if (chipGroupDefaultRole != null) {
+                if (RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(currentRoom.defaultJoinRole)) {
+                    if (chipDefaultCollector != null) chipDefaultCollector.setChecked(true);
+                } else {
+                    if (chipDefaultAuditor != null) chipDefaultAuditor.setChecked(true);
+                }
+            }
+
+            if (switchArchiveRoom != null) {
+                switchArchiveRoom.setChecked(currentRoom.isArchived);
+            }
+            isUpdatingSwitches = false;
+        }
+
+        if (etSettingsRoomName != null) etSettingsRoomName.setEnabled(isOwner);
+        if (etSettingsOrgSubtitle != null) etSettingsOrgSubtitle.setEnabled(isOwner);
+        if (etSettingsReceiptPrefix != null) etSettingsReceiptPrefix.setEnabled(isOwner);
+        if (etSettingsReceiptFooter != null) etSettingsReceiptFooter.setEnabled(isOwner);
+        if (btnSaveRoomProfile != null) btnSaveRoomProfile.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+        if (tvRoomProfileOwnerBadge != null) {
+            tvRoomProfileOwnerBadge.setText(isOwner ? "OWNER ONLY" : "READ ONLY");
+            tvRoomProfileOwnerBadge.setTextColor(ContextCompat.getColor(this, isOwner ? R.color.status_paid_green : R.color.text_secondary));
+        }
+
+        if (chipGroupPaymentChannels != null) {
+            for (int i = 0; i < chipGroupPaymentChannels.getChildCount(); i++) {
+                chipGroupPaymentChannels.getChildAt(i).setEnabled(isOwner);
+            }
+        }
+        if (switchRequireProofOnline != null) switchRequireProofOnline.setEnabled(isOwner);
+        if (chipDefaultAuditor != null) chipDefaultAuditor.setEnabled(isOwner);
+        if (chipDefaultCollector != null) chipDefaultCollector.setEnabled(isOwner);
+        if (switchArchiveRoom != null) switchArchiveRoom.setEnabled(isOwner);
+    }
+
+    private void saveRoomProfileAndSettings() {
+        if (!isCurrentUserRoomOwner()) {
+            Snackbar.make(rootView, "Only the Room OWNER can modify room settings.", Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        if (currentRoom == null) return;
+
+        String name = etSettingsRoomName.getText() != null ? etSettingsRoomName.getText().toString().trim() : "";
+        if (name.length() < 3 || name.length() > 50) {
+            tilSettingsRoomName.setError("Room Name must be between 3 and 50 characters.");
+            return;
+        }
+        tilSettingsRoomName.setError(null);
+
+        String subtitle = etSettingsOrgSubtitle.getText() != null ? etSettingsOrgSubtitle.getText().toString().trim() : "";
+        String prefix = etSettingsReceiptPrefix.getText() != null ? etSettingsReceiptPrefix.getText().toString().trim().toUpperCase(Locale.US) : "RCP";
+        prefix = prefix.replaceAll("[^A-Z0-9]", "");
+        if (prefix.length() < 2) {
+            prefix = "RCP";
+        } else if (prefix.length() > 6) {
+            prefix = prefix.substring(0, 6);
+        }
+        etSettingsReceiptPrefix.setText(prefix);
+
+        String footer = etSettingsReceiptFooter.getText() != null ? etSettingsReceiptFooter.getText().toString().trim() : "";
+
+        // Payment channels
+        List<String> enabledModes = new ArrayList<>();
+        if (chipModeCash != null && chipModeCash.isChecked()) enabledModes.add("CASH");
+        if (chipModeGcash != null && chipModeGcash.isChecked()) enabledModes.add("GCASH");
+        if (chipModeMaya != null && chipModeMaya.isChecked()) enabledModes.add("MAYA");
+        if (chipModeGoTyme != null && chipModeGoTyme.isChecked()) enabledModes.add("GOTYME");
+        if (chipModeBank != null && chipModeBank.isChecked()) enabledModes.add("BANK");
+
+        if (enabledModes.isEmpty()) {
+            Snackbar.make(rootView, "At least one payment channel must remain enabled.", Snackbar.LENGTH_LONG).show();
+            if (chipModeCash != null) chipModeCash.setChecked(true);
+            enabledModes.add("CASH");
+        }
+        String modesStr = String.join(",", enabledModes);
+
+        boolean requireProof = switchRequireProofOnline != null && switchRequireProofOnline.isChecked();
+        String defaultRole = (chipDefaultCollector != null && chipDefaultCollector.isChecked())
+                ? RoomMemberEntity.ROLE_COLLECTOR
+                : RoomMemberEntity.ROLE_AUDITOR;
+        boolean isArchived = switchArchiveRoom != null && switchArchiveRoom.isChecked();
+
+        loadingOverlay.show("Saving Room Settings...", "Updating room profile and branding");
+        repository.updateRoomSettings(
+                currentRoom.roomId,
+                name,
+                subtitle,
+                prefix,
+                footer,
+                modesStr,
+                requireProof,
+                defaultRole,
+                isArchived,
+                new PaymentRepository.ResultCallback<RoomEntity>() {
+                    @Override
+                    public void onSuccess(RoomEntity updated) {
+                        loadingOverlay.hide();
+                        currentRoom = updated;
+                        refreshRoomHeader();
+                        Snackbar.make(rootView, "Room Profile & Settings saved successfully.", Snackbar.LENGTH_SHORT).show();
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        loadingOverlay.hide();
+                        Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
+                    }
+                }
+        );
     }
 
     private void handleDeleteRoomClicked() {
@@ -764,18 +972,25 @@ public class RoomMembersActivity extends BaseThemedActivity {
 
     private void shareInviteIntent() {
         String roomName = currentRoom != null ? currentRoom.roomName : sessionManager.getActiveRoomName();
+        String orgSubtitle = currentRoom != null ? currentRoom.organizationSubtitle : "";
         String roomKey = currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey();
-        String inviteText = "Join Private Room \"" + roomName + "\" on Student QR Payment Tracker\n\n"
-                + "Room Key: " + roomKey + "\n\n"
-                + "How to join:\n"
-                + "1. Open QR Payment Tracker app\n"
-                + "2. Tap Active Room at the top > Join Private Room\n"
-                + "3. Enter the Room Key and Room Password (ask the Room Owner)\n";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Join Private Room \"").append(roomName).append("\"\n");
+        if (orgSubtitle != null && !orgSubtitle.trim().isEmpty()) {
+            sb.append(orgSubtitle.trim()).append("\n");
+        }
+        sb.append("on Student QR Payment Tracker\n\n");
+        sb.append("Room Key: ").append(roomKey).append("\n\n");
+        sb.append("How to join:\n");
+        sb.append("1. Open QR Payment Tracker app\n");
+        sb.append("2. Tap Active Room at the top > Join Private Room\n");
+        sb.append("3. Enter the Room Key and Room Password (ask the Room Owner)\n");
 
         Intent shareIntent = new Intent(Intent.ACTION_SEND);
         shareIntent.setType("text/plain");
         shareIntent.putExtra(Intent.EXTRA_SUBJECT, "Invite to " + roomName);
-        shareIntent.putExtra(Intent.EXTRA_TEXT, inviteText);
+        shareIntent.putExtra(Intent.EXTRA_TEXT, sb.toString());
         startActivity(Intent.createChooser(shareIntent, "Share Room Invite"));
     }
 
@@ -1001,10 +1216,13 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 "Approve as COLLECTOR (Record payments, expenses & rename folders)",
                 "Approve as AUDITOR (Read-only transparency & QR verification)"
         };
+        int defaultIndex = (currentRoom != null && RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(currentRoom.defaultJoinRole)) ? 0 : 1;
+        final int[] checkedIndex = new int[]{defaultIndex};
         new MaterialAlertDialogBuilder(this)
                 .setTitle("Approve " + pendingMember.userName)
-                .setItems(roleOptions, (dialog, which) -> {
-                    String selectedRole = (which == 1)
+                .setSingleChoiceItems(roleOptions, defaultIndex, (dialog, which) -> checkedIndex[0] = which)
+                .setPositiveButton("Approve", (dialog, which) -> {
+                    String selectedRole = (checkedIndex[0] == 1)
                             ? RoomMemberEntity.ROLE_AUDITOR
                             : RoomMemberEntity.ROLE_COLLECTOR;
                     approveMember(pendingMember, selectedRole);

@@ -30,6 +30,21 @@ public interface PaymentDao {
             "(student_identity_key IS NOT NULL AND student_identity_key = :identityKey) " +
             "OR (:studentNumber != '' AND student_number IS NOT NULL AND LOWER(TRIM(student_number)) = LOWER(TRIM(:studentNumber))) " +
             "OR (LOWER(TRIM(first_name)) = :normalizedFirstName AND LOWER(TRIM(last_name)) = :normalizedLastName)" +
+            ") AND (:excludeReceiptId IS NULL OR receipt_id != :excludeReceiptId) " +
+            "ORDER BY created_at DESC")
+    List<PaymentEntity> findActiveDuplicatesForStudentExcludingReceiptSync(
+            long sectionId,
+            String identityKey,
+            String studentNumber,
+            String normalizedFirstName,
+            String normalizedLastName,
+            String excludeReceiptId
+    );
+
+    @Query("SELECT * FROM payments WHERE section_id = :sectionId AND status != 'VOIDED' AND (" +
+            "(student_identity_key IS NOT NULL AND student_identity_key = :identityKey) " +
+            "OR (:studentNumber != '' AND student_number IS NOT NULL AND LOWER(TRIM(student_number)) = LOWER(TRIM(:studentNumber))) " +
+            "OR (LOWER(TRIM(first_name)) = :normalizedFirstName AND LOWER(TRIM(last_name)) = :normalizedLastName)" +
             ") ORDER BY created_at DESC")
     List<PaymentEntity> findActiveDuplicatesForStudentSync(
             long sectionId,

@@ -79,6 +79,35 @@ public class RoomEntity {
     @ColumnInfo(name = "cached_for_user_id", defaultValue = "''")
     public String cachedForUserId;
 
+    public static final String DEFAULT_ENABLED_PAYMENT_MODES = "CASH,GCASH,MAYA,GOTYME,BANK";
+    public static final String DEFAULT_RECEIPT_PREFIX = "RCP";
+
+    @NonNull
+    @ColumnInfo(name = "organization_subtitle", defaultValue = "''")
+    public String organizationSubtitle = "";
+
+    @NonNull
+    @ColumnInfo(name = "receipt_prefix", defaultValue = "'RCP'")
+    public String receiptPrefix = DEFAULT_RECEIPT_PREFIX;
+
+    @NonNull
+    @ColumnInfo(name = "receipt_footer_note", defaultValue = "''")
+    public String receiptFooterNote = "";
+
+    @NonNull
+    @ColumnInfo(name = "enabled_payment_modes", defaultValue = "'CASH,GCASH,MAYA,GOTYME,BANK'")
+    public String enabledPaymentModes = DEFAULT_ENABLED_PAYMENT_MODES;
+
+    @ColumnInfo(name = "require_proof_photo_for_online", defaultValue = "0")
+    public boolean requireProofPhotoForOnline = false;
+
+    @NonNull
+    @ColumnInfo(name = "default_join_role", defaultValue = "'AUDITOR'")
+    public String defaultJoinRole = ROLE_AUDITOR;
+
+    @ColumnInfo(name = "is_archived", defaultValue = "0")
+    public boolean isArchived = false;
+
     @Ignore
     public RoomEntity(
             @NonNull String roomId,
@@ -206,5 +235,38 @@ public class RoomEntity {
 
     public boolean isKeyExpired(long nowMillis) {
         return keyExpiresAt > 0L && nowMillis > keyExpiresAt;
+    }
+
+    public boolean isPaymentModeEnabled(String mode) {
+        if (mode == null || mode.trim().isEmpty()) {
+            return true;
+        }
+        String cleanMode = mode.trim().toUpperCase(java.util.Locale.US);
+        if ("CASH".equals(cleanMode)) {
+            if (enabledPaymentModes == null || enabledPaymentModes.trim().isEmpty()) {
+                return true;
+            }
+        }
+        String[] modes = (enabledPaymentModes != null ? enabledPaymentModes : DEFAULT_ENABLED_PAYMENT_MODES).split(",");
+        for (String m : modes) {
+            if (m.trim().equalsIgnoreCase(cleanMode)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public String getCleanReceiptPrefix() {
+        if (receiptPrefix == null || receiptPrefix.trim().isEmpty()) {
+            return DEFAULT_RECEIPT_PREFIX;
+        }
+        String clean = receiptPrefix.replaceAll("[^a-zA-Z0-9]", "").toUpperCase(java.util.Locale.US);
+        if (clean.length() < 2) {
+            return DEFAULT_RECEIPT_PREFIX;
+        }
+        if (clean.length() > 6) {
+            return clean.substring(0, 6);
+        }
+        return clean;
     }
 }

@@ -10,6 +10,7 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.widget.CheckBox;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -67,6 +68,12 @@ public class RoomLobbyActivity extends BaseThemedActivity {
     private TextView tvRoomLobbyUserSubtitle;
     private TextView tvJoinedRoomsHeader;
     private JoinedRoomsAdapter adapter;
+    private JoinedRoomsAdapter archivedAdapter;
+    private LinearLayout layoutArchivedRoomsSection;
+    private TextView tvArchivedRoomsHeader;
+    private ImageView ivArchivedRoomsChevron;
+    private RecyclerView rvArchivedRooms;
+    private boolean isArchivedExpanded = false;
 
     private ListenerRegistration pendingApprovalListener;
     private AlertDialog waitingApprovalDialog;
@@ -123,18 +130,22 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         btnCreatePrivateRoom.setOnClickListener(v -> showCreatePrivateRoomDialog());
         btnJoinPrivateRoom.setOnClickListener(v -> showJoinPrivateRoomDialog());
 
-        adapter = new JoinedRoomsAdapter(room -> repository.switchActiveRoom(room.roomId, new PaymentRepository.ResultCallback<RoomEntity>() {
+        OnRoomClickListener roomClickListener = room -> repository.switchActiveRoom(room.roomId, new PaymentRepository.ResultCallback<RoomEntity>() {
             @Override
             public void onSuccess(RoomEntity result) {
                 adapter.notifyDataSetChanged();
+                if (archivedAdapter != null) {
+                    archivedAdapter.notifyDataSetChanged();
+                }
                 refreshUserSubtitle();
                 if (sessionManager.isPendingApproval()) {
                     showWaitingForOwnerApprovalDialog(result);
                 } else {
                     stopPendingApprovalListener();
+                    String archiveNote = result.isArchived ? " • ARCHIVED (Read-Only)" : "";
                     Toast.makeText(
                             RoomLobbyActivity.this,
-                            "Switched to room: " + result.roomName + " (" + sessionManager.getActiveRoomRole() + ")",
+                            "Switched to room: " + result.roomName + " (" + sessionManager.getActiveRoomRole() + archiveNote + ")",
                             Toast.LENGTH_SHORT
                     ).show();
                     Intent intent = new Intent(RoomLobbyActivity.this, MainActivity.class);
@@ -148,17 +159,66 @@ public class RoomLobbyActivity extends BaseThemedActivity {
             public void onError(String message) {
                 Toast.makeText(RoomLobbyActivity.this, message, Toast.LENGTH_LONG).show();
             }
-        }));
+        });
+
+        adapter = new JoinedRoomsAdapter(roomClickListener);
+        archivedAdapter = new JoinedRoomsAdapter(roomClickListener);
+
         tvJoinedRoomsHeader = findViewById(R.id.tvJoinedRoomsHeader);
         rvJoinedRooms.setLayoutManager(new LinearLayoutManager(this));
         rvJoinedRooms.setNestedScrollingEnabled(false);
         rvJoinedRooms.setAdapter(adapter);
 
+        layoutArchivedRoomsSection = findViewById(R.id.layoutArchivedRoomsSection);
+        tvArchivedRoomsHeader = findViewById(R.id.tvArchivedRoomsHeader);
+        ivArchivedRoomsChevron = findViewById(R.id.ivArchivedRoomsChevron);
+        rvArchivedRooms = findViewById(R.id.rvArchivedRooms);
+        if (rvArchivedRooms != null) {
+            rvArchivedRooms.setLayoutManager(new LinearLayoutManager(this));
+            rvArchivedRooms.setNestedScrollingEnabled(false);
+            rvArchivedRooms.setAdapter(archivedAdapter);
+        }
+
+        LinearLayout headerArchivedRoomsToggle = findViewById(R.id.headerArchivedRoomsToggle);
+        if (headerArchivedRoomsToggle != null) {
+            headerArchivedRoomsToggle.setOnClickListener(v -> {
+                isArchivedExpanded = !isArchivedExpanded;
+                if (rvArchivedRooms != null) {
+                    rvArchivedRooms.setVisibility(isArchivedExpanded ? View.VISIBLE : View.GONE);
+                }
+                if (ivArchivedRoomsChevron != null) {
+                    ivArchivedRoomsChevron.setRotation(isArchivedExpanded ? 90f : 0f);
+                }
+            });
+        }
+
         repository.observeAllRooms().observe(this, rooms -> {
-            List<RoomEntity> list = rooms != null ? rooms : new ArrayList<>();
-            adapter.submitList(list);
+            List<RoomEntity> all = rooms != null ? rooms : new ArrayList<>();
+            List<RoomEntity> activeList = new ArrayList<>();
+            List<RoomEntity> archivedList = new ArrayList<>();
+            for (RoomEntity r : all) {
+                if (r.isArchived) {
+                    archivedList.add(r);
+                } else {
+                    activeList.add(r);
+                }
+            }
+            adapter.submitList(activeList);
+            archivedAdapter.submitList(archivedList);
+
             if (tvJoinedRoomsHeader != null) {
-                tvJoinedRoomsHeader.setText("My Joined Workspaces (" + list.size() + ")");
+                tvJoinedRoomsHeader.setText("Active Workspaces (" + activeList.size() + ")");
+            }
+
+            if (layoutArchivedRoomsSection != null) {
+                if (archivedList.isEmpty()) {
+                    layoutArchivedRoomsSection.setVisibility(View.GONE);
+                } else {
+                    layoutArchivedRoomsSection.setVisibility(View.VISIBLE);
+                    if (tvArchivedRoomsHeader != null) {
+                        tvArchivedRoomsHeader.setText("Archived Rooms (" + archivedList.size() + ")");
+                    }
+                }
             }
         });
 
@@ -166,6 +226,7 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         if (currentUid != null && !currentUid.isEmpty()) {
             AppDatabase.getInstance(this).roomMemberDao().observeMembershipsForUser(currentUid).observe(this, memberships -> {
                 adapter.updateMemberships(memberships);
+                archivedAdapter.updateMemberships(memberships);
             });
         }
     }
@@ -176,6 +237,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         sessionManager.syncFromFirebaseAuthIfAvailable();
         refreshUserSubtitle();
         adapter.notifyDataSetChanged();
+        if (archivedAdapter != null) {
+            archivedAdapter.notifyDataSetChanged();
+        }
 
         // Refresh cloud workspaces in background
         com.example.qr_paymentscan_cash_n_online.util.RoomDiscoveryManager.discoverRooms(this, null);
@@ -957,6 +1021,20 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                 holder.tvBadge.setTextColor(ContextCompat.getColor(holder.itemView.getContext(), R.color.brand_primary));
                 holder.tvBadge.setBackgroundTintList(ContextCompat.getColorStateList(holder.itemView.getContext(), R.color.surface_variant));
             }
+
+            if (holder.tvSubtitle != null) {
+                if (room.organizationSubtitle != null && !room.organizationSubtitle.trim().isEmpty()) {
+                    holder.tvSubtitle.setText(room.organizationSubtitle.trim());
+                    holder.tvSubtitle.setVisibility(View.VISIBLE);
+                } else {
+                    holder.tvSubtitle.setVisibility(View.GONE);
+                }
+            }
+
+            if (holder.tvArchivedBadge != null) {
+                holder.tvArchivedBadge.setVisibility(room.isArchived ? View.VISIBLE : View.GONE);
+            }
+
             holder.itemView.setOnClickListener(v -> listener.onRoomClicked(room));
         }
 
@@ -967,16 +1045,20 @@ public class RoomLobbyActivity extends BaseThemedActivity {
 
         class RoomViewHolder extends RecyclerView.ViewHolder {
             final TextView tvName;
+            final TextView tvSubtitle;
             final TextView tvKeyAndOwner;
             final TextView tvRoleBadge;
             final TextView tvBadge;
+            final TextView tvArchivedBadge;
 
             RoomViewHolder(@NonNull View itemView) {
                 super(itemView);
                 tvName = itemView.findViewById(R.id.tvItemRoomName);
+                tvSubtitle = itemView.findViewById(R.id.tvItemRoomSubtitle);
                 tvKeyAndOwner = itemView.findViewById(R.id.tvItemRoomKeyAndOwner);
                 tvRoleBadge = itemView.findViewById(R.id.tvItemRoomRoleBadge);
                 tvBadge = itemView.findViewById(R.id.tvItemRoomActiveBadge);
+                tvArchivedBadge = itemView.findViewById(R.id.tvItemRoomArchivedBadge);
             }
         }
     }
