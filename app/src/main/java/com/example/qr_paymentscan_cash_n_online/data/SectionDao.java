@@ -61,6 +61,12 @@ public interface SectionDao {
     @Query("DELETE FROM sections WHERE room_id = :roomId")
     void deleteSectionsByRoomId(String roomId);
 
+    @Query("DELETE FROM sections WHERE id = :sectionId")
+    void deleteSectionById(long sectionId);
+
+    @Query("SELECT * FROM sections WHERE room_id = :roomId AND sync_status = 'SYNCED'")
+    List<SectionEntity> getSyncedSectionsByRoomSync(String roomId);
+
     @Query("SELECT s.id, s.section_name, s.description, s.created_at, s.parent_folder_id, s.sync_status, s.room_id, " +
             "(SELECT COUNT(*) FROM sections child WHERE child.parent_folder_id = s.id) AS subfolder_count, " +
             "COALESCE(SUM(CASE WHEN p.status = 'PAID' THEN p.amount ELSE 0 END), 0.0) AS total_collected, " +

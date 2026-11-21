@@ -4,42 +4,61 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.graphics.Bitmap;
 import android.graphics.Color;
 import android.os.Bundle;
-import android.text.InputType;
+import android.text.Editable;
+import android.text.TextWatcher;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.widget.EditText;
+import android.widget.CheckBox;
 import android.widget.ImageButton;
+import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.annotation.NonNull;
+import androidx.appcompat.app.AlertDialog;
+import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
+import com.example.qr_paymentscan_cash_n_online.data.AuditLogEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
 import com.example.qr_paymentscan_cash_n_online.sync.FirebaseSyncManager;
 import com.example.qr_paymentscan_cash_n_online.sync.FirestoreRealtimeSyncManager;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import com.example.qr_paymentscan_cash_n_online.util.AppLockManager;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
+import com.example.qr_paymentscan_cash_n_online.util.RoomSecurityHelper;
+import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.android.material.materialswitch.MaterialSwitch;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.snackbar.Snackbar;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 
 public class RoomMembersActivity extends BaseThemedActivity {
 
@@ -48,17 +67,57 @@ public class RoomMembersActivity extends BaseThemedActivity {
     private String activeRoomId;
     private RoomEntity currentRoom;
 
+    private View rootView;
     private TextView tvMembersRoomTitle;
     private TextView tvMembersMyRoleSubtitle;
+
+    // Security Hero Card
+    private ImageView ivSecurityPostureIcon;
+    private TextView tvSecurityPostureTitle;
+    private TextView tvSecurityPostureSubtitle;
+    private TextView tvCountActiveMembers;
+    private LinearLayout layoutSummaryPendingBadge;
+    private TextView tvCountPendingRequests;
+    private TextView tvCountSecurityAlerts;
+
+    // Room Key & Invite
     private TextView tvInviteRoomKey;
-    private TextView tvRoomSecurityStatusBanner;
+    private MaterialButton btnCopyInviteKey;
+    private MaterialButton btnShareInvite;
+    private MaterialButton btnShowRoomQr;
+
+    // Access Controls Card
+    private MaterialCardView cardAccessControlToggles;
+    private MaterialSwitch switchRequireApproval;
+    private MaterialSwitch switchEmergencyLock;
+    private ChipGroup chipGroupInviteExpiration;
+    private Chip chipExpNone, chipExp1h, chipExp24h, chipExp7d;
+    private TextView tvInviteExpirationCountdown;
+
+    // Credentials Card
+    private MaterialCardView cardCredentialProtection;
+    private MaterialButton btnRotateRoomPassword;
+    private MaterialButton btnRotateSigningSecret;
+    private MaterialButton btnViewSecurityAuditLogs;
+    private MaterialSwitch switchBiometricAppLock;
+
+    // Pending Section
     private MaterialCardView cardPendingJoinRequestsSection;
     private TextView tvPendingRequestsHeader;
     private LinearLayout layoutPendingRequestsContainer;
-    private MaterialButton btnChangeRoomPassword;
+
+    // Member Management Directory
+    private TextInputEditText etSearchMembers;
+    private ChipGroup chipGroupMemberFilters;
+    private LinearLayout layoutEmptyMembers;
     private MembersAdapter adapter;
+    private LoadingOverlayController loadingOverlay;
 
     private ListenerRegistration liveMembersListener;
+    private final List<RoomMemberEntity> rawMembersList = new ArrayList<>();
+    private String currentSearchQuery = "";
+    private String currentFilter = "ALL";
+    private boolean isUpdatingSwitches = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -69,9 +128,10 @@ public class RoomMembersActivity extends BaseThemedActivity {
         sessionManager = UserSessionManager.getInstance(this);
         sessionManager.syncFromFirebaseAuthIfAvailable();
         activeRoomId = sessionManager.getActiveRoomId();
+        loadingOverlay = new LoadingOverlayController(this);
 
-        View root = findViewById(R.id.roomMembersRoot);
-        ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
+        rootView = findViewById(R.id.roomMembersRoot);
+        ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, insets) -> {
             Insets bars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(bars.left, bars.top, bars.right, bars.bottom);
             return insets;
@@ -80,21 +140,8 @@ public class RoomMembersActivity extends BaseThemedActivity {
         ImageButton btnBack = findViewById(R.id.btnBackRoomMembers);
         btnBack.setOnClickListener(v -> finish());
 
-        tvMembersRoomTitle = findViewById(R.id.tvMembersRoomTitle);
-        tvMembersMyRoleSubtitle = findViewById(R.id.tvMembersMyRoleSubtitle);
-        tvInviteRoomKey = findViewById(R.id.tvInviteRoomKey);
-        tvRoomSecurityStatusBanner = findViewById(R.id.tvRoomSecurityStatusBanner);
-        cardPendingJoinRequestsSection = findViewById(R.id.cardPendingJoinRequestsSection);
-        tvPendingRequestsHeader = findViewById(R.id.tvPendingRequestsHeader);
-        layoutPendingRequestsContainer = findViewById(R.id.layoutPendingRequestsContainer);
-        btnChangeRoomPassword = findViewById(R.id.btnChangeRoomPassword);
-        MaterialButton btnCopyInviteKey = findViewById(R.id.btnCopyInviteKey);
-        RecyclerView rvRoomMembers = findViewById(R.id.rvRoomMembers);
-
-        refreshRoomHeader();
-
-        btnCopyInviteKey.setOnClickListener(v -> copyAndShareInviteKey());
-        btnChangeRoomPassword.setOnClickListener(v -> showSecurityConsoleDialog());
+        initViews();
+        setupClickListeners();
 
         adapter = new MembersAdapter(
                 this::showMemberRoleActionDialog,
@@ -102,8 +149,11 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 member -> rejectOrBanMember(member, false),
                 member -> rejectOrBanMember(member, true)
         );
+        RecyclerView rvRoomMembers = findViewById(R.id.rvRoomMembers);
         rvRoomMembers.setLayoutManager(new LinearLayoutManager(this));
         rvRoomMembers.setAdapter(adapter);
+
+        refreshRoomHeader();
 
         if (activeRoomId != null && !activeRoomId.isEmpty()) {
             repository.observeRoomById(activeRoomId).observe(this, room -> {
@@ -111,10 +161,142 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 refreshRoomHeader();
             });
             repository.observeMembersByRoom(activeRoomId).observe(this, members -> {
-                updateMembersUi(members != null ? members : new ArrayList<>());
+                rawMembersList.clear();
+                if (members != null) {
+                    rawMembersList.addAll(members);
+                }
+                updateMembersUi(rawMembersList);
                 refreshRoomHeader();
             });
+            repository.observeAllAuditLogs().observe(this, logs -> {
+                int securityEvents = 0;
+                if (logs != null) {
+                    for (AuditLogEntity log : logs) {
+                        if (log.actionType != null && log.actionType.startsWith("SECURITY")) {
+                            securityEvents++;
+                        }
+                    }
+                }
+                if (tvCountSecurityAlerts != null) {
+                    tvCountSecurityAlerts.setText(String.valueOf(securityEvents));
+                }
+            });
         }
+    }
+
+    private void initViews() {
+        tvMembersRoomTitle = findViewById(R.id.tvMembersRoomTitle);
+        tvMembersMyRoleSubtitle = findViewById(R.id.tvMembersMyRoleSubtitle);
+
+        ivSecurityPostureIcon = findViewById(R.id.ivSecurityPostureIcon);
+        tvSecurityPostureTitle = findViewById(R.id.tvSecurityPostureTitle);
+        tvSecurityPostureSubtitle = findViewById(R.id.tvSecurityPostureSubtitle);
+        tvCountActiveMembers = findViewById(R.id.tvCountActiveMembers);
+        layoutSummaryPendingBadge = findViewById(R.id.layoutSummaryPendingBadge);
+        tvCountPendingRequests = findViewById(R.id.tvCountPendingRequests);
+        tvCountSecurityAlerts = findViewById(R.id.tvCountSecurityAlerts);
+
+        tvInviteRoomKey = findViewById(R.id.tvInviteRoomKey);
+        btnCopyInviteKey = findViewById(R.id.btnCopyInviteKey);
+        btnShareInvite = findViewById(R.id.btnShareInvite);
+        btnShowRoomQr = findViewById(R.id.btnShowRoomQr);
+
+        cardAccessControlToggles = findViewById(R.id.cardAccessControlToggles);
+        switchRequireApproval = findViewById(R.id.switchRequireApproval);
+        switchEmergencyLock = findViewById(R.id.switchEmergencyLock);
+        chipGroupInviteExpiration = findViewById(R.id.chipGroupInviteExpiration);
+        chipExpNone = findViewById(R.id.chipExpNone);
+        chipExp1h = findViewById(R.id.chipExp1h);
+        chipExp24h = findViewById(R.id.chipExp24h);
+        chipExp7d = findViewById(R.id.chipExp7d);
+        tvInviteExpirationCountdown = findViewById(R.id.tvInviteExpirationCountdown);
+
+        cardCredentialProtection = findViewById(R.id.cardCredentialProtection);
+        btnRotateRoomPassword = findViewById(R.id.btnRotateRoomPassword);
+        btnRotateSigningSecret = findViewById(R.id.btnRotateSigningSecret);
+        btnViewSecurityAuditLogs = findViewById(R.id.btnViewSecurityAuditLogs);
+        switchBiometricAppLock = findViewById(R.id.switchBiometricAppLock);
+
+        cardPendingJoinRequestsSection = findViewById(R.id.cardPendingJoinRequestsSection);
+        tvPendingRequestsHeader = findViewById(R.id.tvPendingRequestsHeader);
+        layoutPendingRequestsContainer = findViewById(R.id.layoutPendingRequestsContainer);
+
+        etSearchMembers = findViewById(R.id.etSearchMembers);
+        chipGroupMemberFilters = findViewById(R.id.chipGroupMemberFilters);
+        layoutEmptyMembers = findViewById(R.id.layoutEmptyMembers);
+    }
+
+    private void setupClickListeners() {
+        btnCopyInviteKey.setOnClickListener(v -> copyInviteKeyOnly());
+        btnShareInvite.setOnClickListener(v -> shareInviteIntent());
+        btnShowRoomQr.setOnClickListener(v -> showRoomQrModalDialog());
+
+        switchRequireApproval.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isUpdatingSwitches || currentRoom == null) return;
+            updateSecurityFlags(currentRoom.isLocked, isChecked, currentRoom.keyExpiresAt);
+        });
+
+        switchEmergencyLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            if (isUpdatingSwitches || currentRoom == null) return;
+            updateSecurityFlags(isChecked, currentRoom.requireApproval, currentRoom.keyExpiresAt);
+        });
+
+        chipGroupInviteExpiration.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (isUpdatingSwitches || currentRoom == null) return;
+            long now = System.currentTimeMillis();
+            long newExp = 0L;
+            if (checkedIds.contains(R.id.chipExp1h)) {
+                newExp = now + TimeUnit.HOURS.toMillis(1);
+            } else if (checkedIds.contains(R.id.chipExp24h)) {
+                newExp = now + TimeUnit.HOURS.toMillis(24);
+            } else if (checkedIds.contains(R.id.chipExp7d)) {
+                newExp = now + TimeUnit.DAYS.toMillis(7);
+            }
+            updateSecurityFlags(currentRoom.isLocked, currentRoom.requireApproval, newExp);
+        });
+
+        switchBiometricAppLock.setChecked(AppLockManager.getInstance(this).isAppLockEnabled());
+        switchBiometricAppLock.setOnCheckedChangeListener((buttonView, isChecked) -> {
+            AppLockManager.getInstance(this).setAppLockEnabled(isChecked);
+            String msg = isChecked
+                    ? "App Lock enabled: Fingerprint / Device PIN will be required on app launch."
+                    : "App Lock disabled.";
+            Snackbar.make(rootView, msg, Snackbar.LENGTH_SHORT).show();
+        });
+
+        btnRotateRoomPassword.setOnClickListener(v -> showRotateRoomPasswordDialog());
+        btnRotateSigningSecret.setOnClickListener(v -> confirmRotateSigningSecret());
+        btnViewSecurityAuditLogs.setOnClickListener(v -> {
+            Intent intent = new Intent(this, AuditLogActivity.class);
+            startActivity(intent);
+        });
+
+        etSearchMembers.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                currentSearchQuery = s != null ? s.toString().trim().toLowerCase(Locale.US) : "";
+                applyMemberFilter();
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+
+        chipGroupMemberFilters.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (checkedIds.contains(R.id.chipFilterPending)) {
+                currentFilter = "PENDING";
+            } else if (checkedIds.contains(R.id.chipFilterCollectors)) {
+                currentFilter = "COLLECTOR";
+            } else if (checkedIds.contains(R.id.chipFilterAuditors)) {
+                currentFilter = "AUDITOR";
+            } else {
+                currentFilter = "ALL";
+            }
+            applyMemberFilter();
+        });
     }
 
     @Override
@@ -129,11 +311,15 @@ public class RoomMembersActivity extends BaseThemedActivity {
         super.onStop();
     }
 
-    /**
-     * Attaches a live Firestore addSnapshotListener directly to rooms/{roomId}/members whenever
-     * RoomMembersActivity is open so join requests submitted from another device appear in real time
-     * and are immediately upserted/reconciled into local Room SQLite.
-     */
+    @Override
+    protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
+        detachLiveRoomMembersListener();
+        super.onDestroy();
+    }
+
     private void attachLiveRoomMembersListener() {
         if (activeRoomId == null || activeRoomId.trim().isEmpty()) {
             return;
@@ -151,11 +337,9 @@ public class RoomMembersActivity extends BaseThemedActivity {
                         if (error != null || snapshots == null) {
                             return;
                         }
-                        // 1. Upsert all remote members & delete stale local rows in Room SQLite
                         FirestoreRealtimeSyncManager.getInstance(RoomMembersActivity.this)
                                 .syncRemoteMembersSnapshot(activeRoomId, snapshots);
 
-                        // 2. Render live remote members on screen immediately
                         List<RoomMemberEntity> liveList = new ArrayList<>();
                         for (DocumentSnapshot doc : snapshots.getDocuments()) {
                             if (!doc.exists()) {
@@ -181,9 +365,10 @@ public class RoomMembersActivity extends BaseThemedActivity {
                                     deviceInfo
                             ));
                         }
-                        if (!liveList.isEmpty()) {
-                            updateMembersUi(liveList);
-                        }
+                        rawMembersList.clear();
+                        rawMembersList.addAll(liveList);
+                        updateMembersUi(rawMembersList);
+                        refreshRoomHeader();
                     });
         } catch (Exception ignored) {
         }
@@ -201,18 +386,61 @@ public class RoomMembersActivity extends BaseThemedActivity {
 
     private void updateMembersUi(List<RoomMemberEntity> allMembers) {
         List<RoomMemberEntity> pendingList = new ArrayList<>();
-        List<RoomMemberEntity> activeOrBannedList = new ArrayList<>();
+        int activeCount = 0;
         for (RoomMemberEntity m : allMembers) {
             if (m.isPendingApproval()) {
                 pendingList.add(m);
-            } else {
-                activeOrBannedList.add(m);
+            } else if (RoomMemberEntity.STATUS_ACTIVE.equalsIgnoreCase(m.status)) {
+                activeCount++;
             }
         }
 
         renderPendingJoinRequestsSection(pendingList);
+        if (tvCountActiveMembers != null) {
+            tvCountActiveMembers.setText(String.valueOf(activeCount));
+        }
+        if (tvCountPendingRequests != null) {
+            tvCountPendingRequests.setText(String.valueOf(pendingList.size()));
+        }
+        if (layoutSummaryPendingBadge != null) {
+            int bgRes = pendingList.isEmpty() ? R.color.surface_variant : R.color.status_pending_container;
+            layoutSummaryPendingBadge.setBackgroundTintList(ContextCompat.getColorStateList(this, bgRes));
+        }
+
+        applyMemberFilter();
+    }
+
+    private void applyMemberFilter() {
+        List<RoomMemberEntity> filtered = new ArrayList<>();
+        for (RoomMemberEntity m : rawMembersList) {
+            if (m.isPendingApproval() && !"PENDING".equalsIgnoreCase(currentFilter) && !"ALL".equalsIgnoreCase(currentFilter)) {
+                continue;
+            }
+            if ("PENDING".equalsIgnoreCase(currentFilter) && !m.isPendingApproval()) {
+                continue;
+            }
+            if ("COLLECTOR".equalsIgnoreCase(currentFilter) && !RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(m.role)) {
+                continue;
+            }
+            if ("AUDITOR".equalsIgnoreCase(currentFilter) && !RoomMemberEntity.ROLE_AUDITOR.equalsIgnoreCase(m.role)) {
+                continue;
+            }
+
+            if (!currentSearchQuery.isEmpty()) {
+                String name = m.userName != null ? m.userName.toLowerCase(Locale.US) : "";
+                String email = m.userEmail != null ? m.userEmail.toLowerCase(Locale.US) : "";
+                if (!name.contains(currentSearchQuery) && !email.contains(currentSearchQuery)) {
+                    continue;
+                }
+            }
+            filtered.add(m);
+        }
+
         adapter.setOwnerViewing(isCurrentUserRoomOwner());
-        adapter.submitList(activeOrBannedList);
+        adapter.submitList(filtered);
+        if (layoutEmptyMembers != null) {
+            layoutEmptyMembers.setVisibility(filtered.isEmpty() ? View.VISIBLE : View.GONE);
+        }
     }
 
     private boolean isCurrentUserRoomOwner() {
@@ -225,11 +453,6 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 && currentUid.equals(currentRoom.ownerUserId);
     }
 
-    /**
-     * Renders the prominent "Pending Join Requests" section at the top of RoomMembersActivity
-     * whenever any member has status == "PENDING_APPROVAL", showing Name, Email, Device Info,
-     * request time, and direct Approve, Reject, and Ban buttons.
-     */
     private void renderPendingJoinRequestsSection(List<RoomMemberEntity> pendingMembers) {
         if (cardPendingJoinRequestsSection == null || layoutPendingRequestsContainer == null) {
             return;
@@ -249,27 +472,39 @@ public class RoomMembersActivity extends BaseThemedActivity {
 
         for (RoomMemberEntity pending : pendingMembers) {
             View itemView = inflater.inflate(R.layout.item_room_member, layoutPendingRequestsContainer, false);
+            TextView tvAvatar = itemView.findViewById(R.id.tvMemberAvatarInitial);
             TextView tvName = itemView.findViewById(R.id.tvMemberName);
             TextView tvEmailAndDate = itemView.findViewById(R.id.tvMemberEmailAndDate);
+            TextView tvDeviceModel = itemView.findViewById(R.id.tvMemberDeviceModel);
             TextView tvRoleBadge = itemView.findViewById(R.id.tvMemberRoleBadge);
             LinearLayout layoutActions = itemView.findViewById(R.id.layoutPendingMemberActions);
             MaterialButton btnApprove = itemView.findViewById(R.id.btnApprovePendingMember);
             MaterialButton btnReject = itemView.findViewById(R.id.btnRejectPendingMember);
             MaterialButton btnBan = itemView.findViewById(R.id.btnBanPendingMember);
 
+            String initial = (pending.userName != null && !pending.userName.trim().isEmpty())
+                    ? pending.userName.trim().substring(0, 1).toUpperCase(Locale.US)
+                    : "P";
+            if (tvAvatar != null) tvAvatar.setText(initial);
             tvName.setText(pending.userName);
-            String emailLine = (pending.userEmail != null && !pending.userEmail.trim().isEmpty())
-                    ? "Email: " + pending.userEmail.trim()
-                    : "Email: Not provided";
-            String deviceLine = (pending.deviceInfo != null && !pending.deviceInfo.trim().isEmpty())
-                    ? "\nDevice: " + pending.deviceInfo.trim()
-                    : "";
-            String timeLine = "\nRequested: " + CurrencyFormatter.formatDateTime(pending.joinedAt);
-            tvEmailAndDate.setText(emailLine + deviceLine + timeLine);
 
-            tvRoleBadge.setText("PENDING APPROVAL");
-            tvRoleBadge.setTextColor(Color.parseColor("#B45309"));
-            tvRoleBadge.setBackgroundColor(Color.parseColor("#FEF3C7"));
+            String email = (pending.userEmail != null && !pending.userEmail.isEmpty())
+                    ? pending.userEmail
+                    : "No email provided";
+            tvEmailAndDate.setText(email + " • Requested " + CurrencyFormatter.formatShortDate(pending.joinedAt));
+
+            if (tvDeviceModel != null) {
+                if (pending.deviceInfo != null && !pending.deviceInfo.trim().isEmpty()) {
+                    tvDeviceModel.setText("Device: " + pending.deviceInfo.trim());
+                    tvDeviceModel.setVisibility(View.VISIBLE);
+                } else {
+                    tvDeviceModel.setVisibility(View.GONE);
+                }
+            }
+
+            tvRoleBadge.setText("PENDING");
+            tvRoleBadge.setTextColor(ContextCompat.getColor(this, R.color.status_warning_amber));
+            tvRoleBadge.setBackgroundTintList(ContextCompat.getColorStateList(this, R.color.status_pending_container));
 
             if (isOwner) {
                 layoutActions.setVisibility(View.VISIBLE);
@@ -283,6 +518,330 @@ public class RoomMembersActivity extends BaseThemedActivity {
 
             layoutPendingRequestsContainer.addView(itemView);
         }
+    }
+
+    private void refreshRoomHeader() {
+        String activeName = currentRoom != null ? currentRoom.roomName : sessionManager.getActiveRoomName();
+        tvMembersRoomTitle.setText(activeName);
+
+        boolean isOwner = isCurrentUserRoomOwner();
+        String role = isOwner ? RoomMemberEntity.ROLE_OWNER : sessionManager.getActiveRoomRole();
+        String roleDesc;
+        if (isOwner) {
+            roleDesc = "OWNER (Full Security & Access Control)";
+        } else if (RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(role)) {
+            roleDesc = "COLLECTOR (Record Payments & Expenses)";
+        } else {
+            roleDesc = "AUDITOR (Read-Only Transparency & QR Verification)";
+        }
+        tvMembersMyRoleSubtitle.setText("Your Role: " + roleDesc);
+
+        String roomKey = currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey();
+        tvInviteRoomKey.setText(roomKey != null ? roomKey : "KEY-XXXXXX");
+
+        // Update Security Posture Hero Card
+        if (currentRoom != null) {
+            boolean isProtected = !currentRoom.isLocked
+                    && currentRoom.requireApproval
+                    && currentRoom.roomSalt != null && !currentRoom.roomSalt.isEmpty();
+
+            if (isProtected) {
+                ivSecurityPostureIcon.setImageResource(R.drawable.ic_verified_user);
+                tvSecurityPostureTitle.setText("Room Protected");
+                tvSecurityPostureTitle.setTextColor(ContextCompat.getColor(this, R.color.status_paid_green));
+                tvSecurityPostureSubtitle.setText("Owner approval gate active • PBKDF2-SHA256 salted hash • Strong status");
+            } else if (currentRoom.isLocked) {
+                ivSecurityPostureIcon.setImageResource(R.drawable.ic_gpp_maybe);
+                tvSecurityPostureTitle.setText("Room Locked (Emergency)");
+                tvSecurityPostureTitle.setTextColor(ContextCompat.getColor(this, R.color.status_alert_crimson));
+                tvSecurityPostureSubtitle.setText("Emergency Room Lock active • All new join attempts are blocked");
+            } else {
+                ivSecurityPostureIcon.setImageResource(R.drawable.ic_gpp_maybe);
+                tvSecurityPostureTitle.setText("Security Attention");
+                tvSecurityPostureTitle.setTextColor(ContextCompat.getColor(this, R.color.status_warning_amber));
+                String sub = !currentRoom.requireApproval
+                        ? "Approval gate disabled • Any user with credentials can join without verification"
+                        : "Legacy password hash in use • Upgrade to salted PBKDF2 recommended";
+                tvSecurityPostureSubtitle.setText(sub);
+            }
+
+            // Update switches and expiration chips without re-triggering listeners
+            isUpdatingSwitches = true;
+            if (switchRequireApproval != null) {
+                switchRequireApproval.setChecked(currentRoom.requireApproval);
+            }
+            if (switchEmergencyLock != null) {
+                switchEmergencyLock.setChecked(currentRoom.isLocked);
+            }
+            long now = System.currentTimeMillis();
+            if (currentRoom.keyExpiresAt <= 0L) {
+                chipExpNone.setChecked(true);
+                tvInviteExpirationCountdown.setText("No expiration timer active (Key valid permanently until rotated)");
+            } else if (currentRoom.isKeyExpired(now)) {
+                tvInviteExpirationCountdown.setText("Invite Key is EXPIRED! Joining members will be rejected until rotated.");
+            } else {
+                long diffHours = TimeUnit.MILLISECONDS.toHours(currentRoom.keyExpiresAt - now);
+                tvInviteExpirationCountdown.setText("Expires in ~" + (diffHours > 0 ? diffHours + "h" : "<1h") + " ("
+                        + CurrencyFormatter.formatDateTime(currentRoom.keyExpiresAt) + ")");
+                if (diffHours >= 24 * 6) {
+                    chipExp7d.setChecked(true);
+                } else if (diffHours >= 12) {
+                    chipExp24h.setChecked(true);
+                } else {
+                    chipExp1h.setChecked(true);
+                }
+            }
+            isUpdatingSwitches = false;
+        }
+
+        // Show/hide owner-only management cards
+        if (cardAccessControlToggles != null) {
+            cardAccessControlToggles.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+        }
+        if (cardCredentialProtection != null) {
+            cardCredentialProtection.setVisibility(isOwner ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private void copyInviteKeyOnly() {
+        String key = currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey();
+        if (key == null || key.isEmpty()) return;
+
+        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+        if (cm != null) {
+            cm.setPrimaryClip(ClipData.newPlainText("Room Key", key));
+        }
+        Snackbar.make(rootView, "Room Key copied: " + key, Snackbar.LENGTH_SHORT).show();
+    }
+
+    private void shareInviteIntent() {
+        String roomName = currentRoom != null ? currentRoom.roomName : sessionManager.getActiveRoomName();
+        String roomKey = currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey();
+        String inviteText = "Join Private Room \"" + roomName + "\" on Student QR Payment Tracker\n\n"
+                + "Room Key: " + roomKey + "\n\n"
+                + "How to join:\n"
+                + "1. Open QR Payment Tracker app\n"
+                + "2. Tap Active Room at the top > Join Private Room\n"
+                + "3. Enter the Room Key and Room Password (ask the Room Owner)\n";
+
+        Intent shareIntent = new Intent(Intent.ACTION_SEND);
+        shareIntent.setType("text/plain");
+        shareIntent.putExtra(Intent.EXTRA_SUBJECT, "Invite to " + roomName);
+        shareIntent.putExtra(Intent.EXTRA_TEXT, inviteText);
+        startActivity(Intent.createChooser(shareIntent, "Share Room Invite"));
+    }
+
+    private void showRoomQrModalDialog() {
+        String key = currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey();
+        if (key == null || key.isEmpty()) {
+            Toast.makeText(this, "Room Key not available.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        LinearLayout container = new LinearLayout(this);
+        container.setOrientation(LinearLayout.VERTICAL);
+        container.setGravity(android.view.Gravity.CENTER);
+        int pad = (int) (20 * getResources().getDisplayMetrics().density);
+        container.setPadding(pad, pad, pad, pad);
+
+        ImageView ivQr = new ImageView(this);
+        int sizePx = (int) (240 * getResources().getDisplayMetrics().density);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(sizePx, sizePx);
+        ivQr.setLayoutParams(lp);
+
+        Bitmap qrBitmap = SecuritySignatureHelper.generateQrCodeBitmap("ROOM_INVITE|" + key, 600);
+        if (qrBitmap != null) {
+            ivQr.setImageBitmap(qrBitmap);
+        }
+        container.addView(ivQr);
+
+        TextView tvKey = new TextView(this);
+        tvKey.setText(key);
+        tvKey.setTextSize(18f);
+        tvKey.setTextAlignment(View.TEXT_ALIGNMENT_CENTER);
+        tvKey.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+        tvKey.setTextColor(ContextCompat.getColor(this, R.color.text_primary));
+        LinearLayout.LayoutParams textLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+        );
+        textLp.topMargin = pad / 2;
+        tvKey.setLayoutParams(textLp);
+        container.addView(tvKey);
+
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Scan Room Invite QR")
+                .setMessage("Have other officers scan this QR code directly from their Room Lobby to automatically populate the Room Key.")
+                .setView(container)
+                .setPositiveButton("Close", null)
+                .show();
+    }
+
+    private void updateSecurityFlags(boolean isLocked, boolean requireApproval, long keyExpiresAt) {
+        loadingOverlay.show("Updating Security Rules...", "Syncing across all devices");
+        repository.updateRoomSecuritySettings(
+                activeRoomId,
+                isLocked,
+                requireApproval,
+                keyExpiresAt,
+                new PaymentRepository.ResultCallback<RoomEntity>() {
+                    @Override
+                    public void onSuccess(RoomEntity result) {
+                        loadingOverlay.hide();
+                        currentRoom = result;
+                        refreshRoomHeader();
+                        Snackbar.make(rootView, "Room security settings updated.", Snackbar.LENGTH_SHORT).show();
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        loadingOverlay.hide();
+                        Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
+                    }
+                }
+        );
+    }
+
+    private void showRotateRoomPasswordDialog() {
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_change_room_password, null);
+        TextInputLayout tilNewPass = dialogView.findViewById(R.id.tilNewRoomPassword);
+        TextInputEditText etNewPass = dialogView.findViewById(R.id.etNewRoomPassword);
+        LinearProgressIndicator progressStrength = dialogView.findViewById(R.id.progressNewPassStrength);
+        TextView tvStrengthLabel = dialogView.findViewById(R.id.tvNewPassStrengthLabel);
+        TextView tvPolicyHint = dialogView.findViewById(R.id.tvNewPassPolicyHint);
+        CheckBox cbAlsoRotateKey = dialogView.findViewById(R.id.cbAlsoRotateKey);
+
+        etNewPass.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {
+                String pass = s != null ? s.toString() : "";
+                if (pass.isEmpty()) {
+                    progressStrength.setProgress(0);
+                    tvStrengthLabel.setText("Weak");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_void_red));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_void_red));
+                    tvPolicyHint.setText("Must include 8+ chars with uppercase, lowercase, and numbers");
+                    return;
+                }
+                String err = RoomSecurityHelper.validatePasswordStrength(pass);
+                String strength = RoomSecurityHelper.getPasswordStrengthLabel(pass);
+                if ("Strong".equalsIgnoreCase(strength) && err == null) {
+                    progressStrength.setProgress(100);
+                    tvStrengthLabel.setText("Strong");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_paid_green));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_paid_green));
+                    tvPolicyHint.setText("PBKDF2-SHA256 Ready • Excellent security");
+                } else if ("Fair".equalsIgnoreCase(strength)) {
+                    progressStrength.setProgress(60);
+                    tvStrengthLabel.setText("Fair");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_warning_amber));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_warning_amber));
+                    tvPolicyHint.setText(err != null ? err : "Add uppercase, lowercase and numbers for maximum strength");
+                } else {
+                    progressStrength.setProgress(25);
+                    tvStrengthLabel.setText("Weak");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_void_red));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomMembersActivity.this, R.color.status_void_red));
+                    tvPolicyHint.setText(err != null ? err : "Min 8 chars with uppercase, lowercase, and numbers");
+                }
+            }
+
+            @Override
+            public void afterTextChanged(Editable s) {}
+        });
+
+        AlertDialog dialog = new MaterialAlertDialogBuilder(this)
+                .setTitle("Change Room Password")
+                .setView(dialogView)
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Update Password", null)
+                .create();
+
+        dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            String newPass = etNewPass.getText() != null ? etNewPass.getText().toString().trim() : "";
+            String passErr = RoomSecurityHelper.validatePasswordStrength(newPass);
+            if (passErr != null) {
+                tilNewPass.setError(passErr);
+                return;
+            }
+            tilNewPass.setError(null);
+
+            boolean rotateKey = cbAlsoRotateKey.isChecked();
+            loadingOverlay.show("Updating Password...", "Hashing with PBKDF2-SHA256 & 16-byte salt");
+
+            if (rotateKey) {
+                long currentExp = currentRoom != null ? currentRoom.keyExpiresAt : 0L;
+                repository.rotateRoomKeyAndPassword(activeRoomId, newPass, currentExp, new PaymentRepository.ResultCallback<RoomEntity>() {
+                    @Override
+                    public void onSuccess(RoomEntity result) {
+                        loadingOverlay.hide();
+                        dialog.dismiss();
+                        currentRoom = result;
+                        refreshRoomHeader();
+                        new MaterialAlertDialogBuilder(RoomMembersActivity.this)
+                                .setTitle("New Room Key Generated!")
+                                .setMessage("New Room Key: " + result.roomKey
+                                        + "\n\nOld Room Keys and invite links have been invalidated. Approved members remain in the room.")
+                                .setPositiveButton("Got It", null)
+                                .show();
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        loadingOverlay.hide();
+                        tilNewPass.setError(message);
+                    }
+                });
+            } else {
+                repository.changeRoomPassword(activeRoomId, newPass, new PaymentRepository.ResultCallback<Void>() {
+                    @Override
+                    public void onSuccess(Void result) {
+                        loadingOverlay.hide();
+                        dialog.dismiss();
+                        Snackbar.make(rootView, "Room Password updated (PBKDF2-SHA256).", Snackbar.LENGTH_LONG).show();
+                    }
+
+                    @Override
+                    public void onError(String message) {
+                        loadingOverlay.hide();
+                        tilNewPass.setError(message);
+                    }
+                });
+            }
+        }));
+
+        dialog.show();
+    }
+
+    private void confirmRotateSigningSecret() {
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Rotate 256-bit QR Signing Secret?")
+                .setMessage("Generates a new 256-bit HMAC-SHA256 signing secret for future QR payment receipts issued in this room and syncs it to active room members.")
+                .setNegativeButton("Cancel", null)
+                .setPositiveButton("Rotate Secret", (d, w) -> {
+                    loadingOverlay.show("Rotating Secret...", "Syncing new secret to active members");
+                    repository.rotateRoomSigningSecret(
+                            activeRoomId,
+                            new PaymentRepository.ResultCallback<RoomEntity>() {
+                                @Override
+                                public void onSuccess(RoomEntity result) {
+                                    loadingOverlay.hide();
+                                    currentRoom = result;
+                                    Snackbar.make(rootView, "Rotated 256-bit QR Signing Secret.", Snackbar.LENGTH_SHORT).show();
+                                }
+
+                                @Override
+                                public void onError(String message) {
+                                    loadingOverlay.hide();
+                                    Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
+                                }
+                            }
+                    );
+                })
+                .show();
     }
 
     private void showQuickApproveRolePickerDialog(RoomMemberEntity pendingMember) {
@@ -303,271 +862,6 @@ public class RoomMembersActivity extends BaseThemedActivity {
                     approveMember(pendingMember, selectedRole);
                 })
                 .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void refreshRoomHeader() {
-        tvMembersRoomTitle.setText(sessionManager.getActiveRoomName());
-        String role = sessionManager.getActiveRoomRole();
-        String roleDesc;
-        if (RoomMemberEntity.ROLE_OWNER.equalsIgnoreCase(role) || isCurrentUserRoomOwner()) {
-            roleDesc = "OWNER (Full Access • Security Console & Approvals)";
-        } else if (RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(role)) {
-            roleDesc = "COLLECTOR (Record Payments, Expenses & Rename Folders)";
-        } else {
-            roleDesc = "AUDITOR (Read-Only Transparency & QR Verification)";
-        }
-        tvMembersMyRoleSubtitle.setText("Your Role: " + roleDesc);
-        tvInviteRoomKey.setText(currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey());
-        btnChangeRoomPassword.setVisibility(isCurrentUserRoomOwner() ? View.VISIBLE : View.GONE);
-
-        if (tvRoomSecurityStatusBanner != null) {
-            if (currentRoom != null) {
-                long now = System.currentTimeMillis();
-                String lockText = currentRoom.isLocked ? "LOCKED (New Joins Blocked)" : "OPEN";
-                String approvalText = currentRoom.requireApproval ? "Approval Gate: ON" : "Approval Gate: OFF";
-                String expText;
-                if (currentRoom.keyExpiresAt <= 0L) {
-                    expText = "Invite Key: No Expiration";
-                } else if (currentRoom.isKeyExpired(now)) {
-                    expText = "Invite Key: EXPIRED";
-                } else {
-                    expText = "Expires: " + CurrencyFormatter.formatDateTime(currentRoom.keyExpiresAt);
-                }
-                tvRoomSecurityStatusBanner.setText("Room: " + lockText + " • " + approvalText + " • " + expText);
-                if (currentRoom.isLocked || currentRoom.isKeyExpired(now)) {
-                    tvRoomSecurityStatusBanner.setBackgroundColor(Color.parseColor("#FEE2E2"));
-                    tvRoomSecurityStatusBanner.setTextColor(Color.parseColor("#B91C1C"));
-                } else {
-                    tvRoomSecurityStatusBanner.setBackgroundColor(Color.parseColor("#F0F5FF"));
-                    tvRoomSecurityStatusBanner.setTextColor(Color.parseColor("#1E3A8A"));
-                }
-            }
-        }
-    }
-
-    private void copyAndShareInviteKey() {
-        String roomName = sessionManager.getActiveRoomName();
-        String roomKey = currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey();
-        String inviteText = "Join Private Room \"" + roomName + "\" on Student QR Payment Tracker\n"
-                + "Room Key: " + roomKey + "\n"
-                + "(Ask the Room Owner for the Room Password)";
-
-        ClipboardManager cm = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
-        if (cm != null) {
-            cm.setPrimaryClip(ClipData.newPlainText("Room Invite Key", roomKey));
-        }
-        Toast.makeText(this, "Copied Room Key: " + roomKey, Toast.LENGTH_SHORT).show();
-
-        Intent shareIntent = new Intent(Intent.ACTION_SEND);
-        shareIntent.setType("text/plain");
-        shareIntent.putExtra(Intent.EXTRA_SUBJECT, "Invite to " + roomName);
-        shareIntent.putExtra(Intent.EXTRA_TEXT, inviteText);
-        startActivity(Intent.createChooser(shareIntent, "Share Room Invite Key"));
-    }
-
-    /**
-     * Owner Security & Anti-Hacking Console:
-     * 1. One-tap Emergency Room Lock / Unlock
-     * 2. Toggle Owner Approval Gate (Waiting Room)
-     * 3. Set Invite Key Expiration Timer (No Expiration, 1 Hour, 24 Hours, 7 Days)
-     * 4. Change Room Password (PBKDF2WithHmacSHA256)
-     * 5. Rotate Room Key & Password (Invalidates leaked invite keys)
-     * 6. Rotate 256-bit HMAC QR Signing Secret
-     */
-    private void showSecurityConsoleDialog() {
-        if (!isCurrentUserRoomOwner()) {
-            Toast.makeText(this, "Only the Room OWNER can access the Security Console.", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        boolean isLocked = currentRoom != null && currentRoom.isLocked;
-        boolean requireApproval = currentRoom == null || currentRoom.requireApproval;
-
-        String lockOption = isLocked
-                ? "Unlock Room (Allow New Officers to Join)"
-                : "Emergency Lock Room (Block All New Joins)";
-        String approvalOption = requireApproval
-                ? "Owner Approval Gate: ON (Tap to Disable Waiting Room)"
-                : "Owner Approval Gate: OFF (Tap to Require Owner Approval)";
-
-        String[] options = new String[]{
-                lockOption,
-                approvalOption,
-                "Set Invite Key Expiration Timer (1h / 24h / 7d)",
-                "Change Room Password (PBKDF2-SHA256)",
-                "Rotate Room Key & Password (Invalidate Old Key)",
-                "Rotate 256-bit QR Signing Secret"
-        };
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Room Security & Anti-Hacking Console")
-                .setItems(options, (dialog, which) -> {
-                    long currentExp = currentRoom != null ? currentRoom.keyExpiresAt : 0L;
-                    if (which == 0) {
-                        updateSecurityFlags(!isLocked, requireApproval, currentExp);
-                    } else if (which == 1) {
-                        updateSecurityFlags(isLocked, !requireApproval, currentExp);
-                    } else if (which == 2) {
-                        showInviteExpirationPickerDialog(isLocked, requireApproval);
-                    } else if (which == 3) {
-                        showChangePasswordDialog();
-                    } else if (which == 4) {
-                        showRotateRoomKeyAndPasswordDialog(currentExp);
-                    } else if (which == 5) {
-                        confirmRotateSigningSecret();
-                    }
-                })
-                .setNegativeButton("Close", null)
-                .show();
-    }
-
-    private void updateSecurityFlags(boolean isLocked, boolean requireApproval, long keyExpiresAt) {
-        repository.updateRoomSecuritySettings(
-                activeRoomId,
-                isLocked,
-                requireApproval,
-                keyExpiresAt,
-                new PaymentRepository.ResultCallback<RoomEntity>() {
-                    @Override
-                    public void onSuccess(RoomEntity result) {
-                        currentRoom = result;
-                        refreshRoomHeader();
-                        Toast.makeText(
-                                RoomMembersActivity.this,
-                                "Room security settings updated.",
-                                Toast.LENGTH_SHORT
-                        ).show();
-                    }
-
-                    @Override
-                    public void onError(String message) {
-                        Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
-                    }
-                }
-        );
-    }
-
-    private void showInviteExpirationPickerDialog(boolean isLocked, boolean requireApproval) {
-        String[] durations = new String[]{
-                "No Expiration (Permanent until rotated)",
-                "Expire in 1 Hour",
-                "Expire in 24 Hours",
-                "Expire in 7 Days"
-        };
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Set Invite Key Expiration")
-                .setItems(durations, (d, which) -> {
-                    long now = System.currentTimeMillis();
-                    long expiresAt = 0L;
-                    if (which == 1) {
-                        expiresAt = now + 60L * 60L * 1000L;
-                    } else if (which == 2) {
-                        expiresAt = now + 24L * 60L * 60L * 1000L;
-                    } else if (which == 3) {
-                        expiresAt = now + 7L * 24L * 60L * 60L * 1000L;
-                    }
-                    updateSecurityFlags(isLocked, requireApproval, expiresAt);
-                })
-                .setNegativeButton("Cancel", null)
-                .show();
-    }
-
-    private void showChangePasswordDialog() {
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        container.setPadding(pad, pad / 2, pad, 0);
-
-        EditText etNewPass = new EditText(this);
-        etNewPass.setHint("New Strong Password (8+ chars, A-Z, a-z, 0-9)");
-        etNewPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        container.addView(etNewPass);
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Change Room Password")
-                .setMessage("Updates the room password with a fresh 16-byte cryptographic salt and 65,536-iteration PBKDF2-SHA256 hash.")
-                .setView(container)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Update Password", (d, w) -> {
-                    String newPass = etNewPass.getText().toString().trim();
-                    repository.changeRoomPassword(activeRoomId, newPass, new PaymentRepository.ResultCallback<Void>() {
-                        @Override
-                        public void onSuccess(Void result) {
-                            Toast.makeText(RoomMembersActivity.this, "Room Password updated (PBKDF2-SHA256).", Toast.LENGTH_SHORT).show();
-                        }
-
-                        @Override
-                        public void onError(String message) {
-                            Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                })
-                .show();
-    }
-
-    private void showRotateRoomKeyAndPasswordDialog(long keyExpiresAt) {
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        container.setPadding(pad, pad / 2, pad, 0);
-
-        EditText etNewPass = new EditText(this);
-        etNewPass.setHint("New Strong Password (8+ chars, A-Z, a-z, 0-9)");
-        etNewPass.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        container.addView(etNewPass);
-
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Rotate Room Key & Password")
-                .setMessage("Generates a brand-new Room Key (KEY-XXXXXX) and salted PBKDF2 password hash. Anyone holding the old Room Key will no longer be able to join. Existing approved members remain in the room.")
-                .setView(container)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Rotate Credentials", (d, w) -> {
-                    String newPass = etNewPass.getText().toString().trim();
-                    repository.rotateRoomKeyAndPassword(activeRoomId, newPass, keyExpiresAt, new PaymentRepository.ResultCallback<RoomEntity>() {
-                        @Override
-                        public void onSuccess(RoomEntity result) {
-                            currentRoom = result;
-                            refreshRoomHeader();
-                            Toast.makeText(
-                                    RoomMembersActivity.this,
-                                    "New Room Key Generated: " + result.roomKey,
-                                    Toast.LENGTH_LONG
-                            ).show();
-                        }
-
-                        @Override
-                        public void onError(String message) {
-                            Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
-                        }
-                    });
-                })
-                .show();
-    }
-
-    private void confirmRotateSigningSecret() {
-        new MaterialAlertDialogBuilder(this)
-                .setTitle("Rotate 256-bit QR Signing Secret?")
-                .setMessage("Generates a new 256-bit HMAC-SHA256 signing secret for future QR payment receipts issued in this room and syncs it to active room members.")
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Rotate Secret", (d, w) -> repository.rotateRoomSigningSecret(
-                        activeRoomId,
-                        new PaymentRepository.ResultCallback<RoomEntity>() {
-                            @Override
-                            public void onSuccess(RoomEntity result) {
-                                currentRoom = result;
-                                Toast.makeText(
-                                        RoomMembersActivity.this,
-                                        "Rotated 256-bit QR Signing Secret.",
-                                        Toast.LENGTH_SHORT
-                                ).show();
-                            }
-
-                            @Override
-                            public void onError(String message) {
-                                Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
-                            }
-                        }
-                ))
                 .show();
     }
 
@@ -634,6 +928,7 @@ public class RoomMembersActivity extends BaseThemedActivity {
     }
 
     private void approveMember(RoomMemberEntity member, String role) {
+        loadingOverlay.show("Updating Member Access...", "Updating across all connected devices");
         repository.approvePendingMember(
                 activeRoomId,
                 member.userId,
@@ -642,22 +937,21 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 new PaymentRepository.ResultCallback<Void>() {
                     @Override
                     public void onSuccess(Void result) {
-                        Toast.makeText(
-                                RoomMembersActivity.this,
-                                "Approved " + member.userName + " as " + role,
-                                Toast.LENGTH_SHORT
-                        ).show();
+                        loadingOverlay.hide();
+                        Snackbar.make(rootView, "Approved " + member.userName + " as " + role, Snackbar.LENGTH_SHORT).show();
                     }
 
                     @Override
                     public void onError(String message) {
-                        Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
+                        loadingOverlay.hide();
+                        Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                     }
                 }
         );
     }
 
     private void changeRole(RoomMemberEntity member, String newRole) {
+        loadingOverlay.show("Updating Member Access...", "Updating across all connected devices");
         repository.updateMemberRole(
                 activeRoomId,
                 member.userId,
@@ -666,16 +960,14 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 new PaymentRepository.ResultCallback<Void>() {
                     @Override
                     public void onSuccess(Void result) {
-                        Toast.makeText(
-                                RoomMembersActivity.this,
-                                member.userName + " is now " + newRole,
-                                Toast.LENGTH_SHORT
-                        ).show();
+                        loadingOverlay.hide();
+                        Snackbar.make(rootView, member.userName + " is now " + newRole, Snackbar.LENGTH_SHORT).show();
                     }
 
                     @Override
                     public void onError(String message) {
-                        Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
+                        loadingOverlay.hide();
+                        Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                     }
                 }
         );
@@ -697,27 +989,31 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 .setTitle(title)
                 .setMessage(msg)
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton(positiveLabel, (d, w) -> repository.rejectOrBanMember(
-                        activeRoomId,
-                        member.userId,
-                        member.userName,
-                        banPermanently,
-                        new PaymentRepository.ResultCallback<Void>() {
-                            @Override
-                            public void onSuccess(Void result) {
-                                Toast.makeText(
-                                        RoomMembersActivity.this,
-                                        (banPermanently ? "Banned " : "Removed ") + member.userName,
-                                        Toast.LENGTH_SHORT
-                                ).show();
-                            }
+                .setPositiveButton(positiveLabel, (d, w) -> {
+                    loadingOverlay.show("Updating Member Access...", "Updating across all connected devices");
+                    repository.rejectOrBanMember(
+                            activeRoomId,
+                            member.userId,
+                            member.userName,
+                            banPermanently,
+                            new PaymentRepository.ResultCallback<Void>() {
+                                @Override
+                                public void onSuccess(Void result) {
+                                    loadingOverlay.hide();
+                                    String notice = banPermanently
+                                            ? "Banned " + member.userName + " and revoked room access."
+                                            : "Removed " + member.userName + " from room.";
+                                    Snackbar.make(rootView, notice, Snackbar.LENGTH_SHORT).show();
+                                }
 
-                            @Override
-                            public void onError(String message) {
-                                Toast.makeText(RoomMembersActivity.this, message, Toast.LENGTH_LONG).show();
+                                @Override
+                                public void onError(String message) {
+                                    loadingOverlay.hide();
+                                    Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
+                                }
                             }
-                        }
-                ))
+                    );
+                })
                 .show();
     }
 
@@ -766,17 +1062,31 @@ public class RoomMembersActivity extends BaseThemedActivity {
         @Override
         public void onBindViewHolder(@NonNull MemberViewHolder holder, int position) {
             RoomMemberEntity m = items.get(position);
-            holder.tvName.setText(m.userName);
+            Context context = holder.itemView.getContext();
+
+            String name = m.userName != null ? m.userName.trim() : "Member";
+            String initial = !name.isEmpty() ? name.substring(0, 1).toUpperCase(Locale.US) : "M";
+            if (holder.tvAvatarInitial != null) {
+                holder.tvAvatarInitial.setText(initial);
+            }
+            holder.tvName.setText(name);
+
             String emailPart = (m.userEmail != null && !m.userEmail.isEmpty()) ? m.userEmail + " • " : "";
-            String devicePart = (m.deviceInfo != null && !m.deviceInfo.trim().isEmpty())
-                    ? m.deviceInfo.trim() + " • "
-                    : "";
-            holder.tvEmailAndDate.setText(emailPart + devicePart + "Joined " + CurrencyFormatter.formatShortDate(m.joinedAt));
+            holder.tvEmailAndDate.setText(emailPart + "Joined " + CurrencyFormatter.formatShortDate(m.joinedAt));
+
+            if (holder.tvDeviceModel != null) {
+                if (m.deviceInfo != null && !m.deviceInfo.trim().isEmpty()) {
+                    holder.tvDeviceModel.setText("Device: " + m.deviceInfo.trim());
+                    holder.tvDeviceModel.setVisibility(View.VISIBLE);
+                } else {
+                    holder.tvDeviceModel.setVisibility(View.GONE);
+                }
+            }
 
             if (m.isPendingApproval()) {
-                holder.tvRoleBadge.setText("PENDING APPROVAL");
-                holder.tvRoleBadge.setTextColor(Color.parseColor("#B45309"));
-                holder.tvRoleBadge.setBackgroundColor(Color.parseColor("#FEF3C7"));
+                holder.tvRoleBadge.setText("PENDING");
+                holder.tvRoleBadge.setTextColor(ContextCompat.getColor(context, R.color.status_warning_amber));
+                holder.tvRoleBadge.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.status_pending_container));
                 if (isOwnerViewing && holder.layoutPendingActions != null) {
                     holder.layoutPendingActions.setVisibility(View.VISIBLE);
                     holder.btnApprove.setOnClickListener(v -> approveListener.onMemberClicked(m));
@@ -787,15 +1097,29 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 }
             } else if (m.isBanned()) {
                 holder.tvRoleBadge.setText("BANNED");
-                holder.tvRoleBadge.setTextColor(Color.parseColor("#B91C1C"));
-                holder.tvRoleBadge.setBackgroundColor(Color.parseColor("#FEE2E2"));
+                holder.tvRoleBadge.setTextColor(ContextCompat.getColor(context, R.color.status_void_red));
+                holder.tvRoleBadge.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.status_void_bg));
+                if (holder.layoutPendingActions != null) {
+                    holder.layoutPendingActions.setVisibility(View.GONE);
+                }
+            } else if (RoomMemberEntity.ROLE_OWNER.equalsIgnoreCase(m.role)) {
+                holder.tvRoleBadge.setText("OWNER");
+                holder.tvRoleBadge.setTextColor(ContextCompat.getColor(context, R.color.white));
+                holder.tvRoleBadge.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.brand_primary));
+                if (holder.layoutPendingActions != null) {
+                    holder.layoutPendingActions.setVisibility(View.GONE);
+                }
+            } else if (RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(m.role)) {
+                holder.tvRoleBadge.setText("COLLECTOR");
+                holder.tvRoleBadge.setTextColor(ContextCompat.getColor(context, R.color.status_paid_green));
+                holder.tvRoleBadge.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.status_paid_bg));
                 if (holder.layoutPendingActions != null) {
                     holder.layoutPendingActions.setVisibility(View.GONE);
                 }
             } else {
-                holder.tvRoleBadge.setText(m.role);
-                holder.tvRoleBadge.setTextColor(Color.parseColor("#1E3A8A"));
-                holder.tvRoleBadge.setBackgroundColor(Color.parseColor("#E8F0FE"));
+                holder.tvRoleBadge.setText("AUDITOR");
+                holder.tvRoleBadge.setTextColor(ContextCompat.getColor(context, R.color.status_warning_amber));
+                holder.tvRoleBadge.setBackgroundTintList(ContextCompat.getColorStateList(context, R.color.status_warning_bg));
                 if (holder.layoutPendingActions != null) {
                     holder.layoutPendingActions.setVisibility(View.GONE);
                 }
@@ -809,8 +1133,10 @@ public class RoomMembersActivity extends BaseThemedActivity {
         }
 
         static class MemberViewHolder extends RecyclerView.ViewHolder {
+            final TextView tvAvatarInitial;
             final TextView tvName;
             final TextView tvEmailAndDate;
+            final TextView tvDeviceModel;
             final TextView tvRoleBadge;
             final LinearLayout layoutPendingActions;
             final MaterialButton btnApprove;
@@ -819,8 +1145,10 @@ public class RoomMembersActivity extends BaseThemedActivity {
 
             MemberViewHolder(@NonNull View itemView) {
                 super(itemView);
+                tvAvatarInitial = itemView.findViewById(R.id.tvMemberAvatarInitial);
                 tvName = itemView.findViewById(R.id.tvMemberName);
                 tvEmailAndDate = itemView.findViewById(R.id.tvMemberEmailAndDate);
+                tvDeviceModel = itemView.findViewById(R.id.tvMemberDeviceModel);
                 tvRoleBadge = itemView.findViewById(R.id.tvMemberRoleBadge);
                 layoutPendingActions = itemView.findViewById(R.id.layoutPendingMemberActions);
                 btnApprove = itemView.findViewById(R.id.btnApprovePendingMember);

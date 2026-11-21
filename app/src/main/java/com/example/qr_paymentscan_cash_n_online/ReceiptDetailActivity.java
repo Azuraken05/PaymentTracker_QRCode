@@ -19,11 +19,14 @@ import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowInsetsCompat;
 
+import java.util.Locale;
+
 import com.bumptech.glide.Glide;
 import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
@@ -72,7 +75,10 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
 
     private MaterialCardView cardReceiptGcashProof;
     private ImageView ivReceiptProofThumbnail;
+    private MaterialButton btnEditReceipt;
     private MaterialButton btnVoidPayment;
+    private TextView tvReceiptEditedBadge;
+    private LoadingOverlayController loadingOverlay;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,6 +87,7 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         setContentView(R.layout.activity_receipt_detail);
 
         rootView = findViewById(R.id.receiptDetailRoot);
+        loadingOverlay = new LoadingOverlayController(this);
         ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
@@ -98,7 +105,9 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         ImageButton btnBack = findViewById(R.id.btnBackReceipt);
         MaterialButton btnShareReceiptImage = findViewById(R.id.btnShareReceiptImage);
         MaterialButton btnSaveReceiptToGallery = findViewById(R.id.btnSaveReceiptToGallery);
+        btnEditReceipt = findViewById(R.id.btnEditReceipt);
         btnVoidPayment = findViewById(R.id.btnVoidPayment);
+        tvReceiptEditedBadge = findViewById(R.id.tvReceiptEditedBadge);
 
         receiptContainer = findViewById(R.id.receipt_container);
         tvReceiptSectionName = findViewById(R.id.tvReceiptSectionName);
@@ -130,6 +139,7 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         btnBack.setOnClickListener(v -> finish());
         btnSaveReceiptToGallery.setOnClickListener(v -> saveReceiptImage(false));
         btnShareReceiptImage.setOnClickListener(v -> saveReceiptImage(true));
+        btnEditReceipt.setOnClickListener(v -> openEditReceiptScreen());
         btnVoidPayment.setOnClickListener(v -> showVoidPaymentDialog());
 
         repository.observePaymentByReceiptId(receiptId).observe(this, payment -> {
@@ -154,15 +164,24 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         }
 
         tvReceiptPurpose.setText(payment.purpose);
-        tvReceiptMethod.setText(payment.isGcash() ? "ONLINE (GCASH)" : "CASH");
+        String displayMethod = payment.paymentMethod != null ? payment.paymentMethod.toUpperCase(Locale.US) : "CASH";
+        tvReceiptMethod.setText(displayMethod);
         tvReceiptDateTime.setText(CurrencyFormatter.formatDateTime(payment.createdAt));
         if (tvReceiptRecordedBy != null) {
             tvReceiptRecordedBy.setText(payment.getFormattedActorAttribution());
         }
 
-        if (payment.isGcash() && payment.gcashReferenceNo != null) {
+        boolean hasProofImage = (payment.proofImagePath != null && !payment.proofImagePath.trim().isEmpty())
+                || (payment.remoteProofUrl != null && !payment.remoteProofUrl.trim().isEmpty())
+                || (payment.proofImageUrl != null && !payment.proofImageUrl.trim().isEmpty());
+        String refDisplay = com.example.qr_paymentscan_cash_n_online.util.PaymentValidationHelper.formatReferenceDisplay(
+                payment.paymentMethod,
+                payment.gcashReferenceNo,
+                hasProofImage
+        );
+        if (payment.isOnline() || (payment.gcashReferenceNo != null && !payment.gcashReferenceNo.trim().isEmpty())) {
             rowReceiptGcashRef.setVisibility(View.VISIBLE);
-            tvReceiptGcashRef.setText(payment.gcashReferenceNo);
+            tvReceiptGcashRef.setText(refDisplay);
         } else {
             rowReceiptGcashRef.setVisibility(View.GONE);
         }
@@ -200,8 +219,17 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
             tvReceiptAmountHero.setPaintFlags(tvReceiptAmountHero.getPaintFlags() & (~Paint.STRIKE_THRU_TEXT_FLAG));
 
             layoutReceiptVoidInfo.setVisibility(View.GONE);
-            boolean canVoid = UserSessionManager.getInstance(this).canVoidOrDeleteOrManageMembers();
-            btnVoidPayment.setVisibility(canVoid ? View.VISIBLE : View.GONE);
+            boolean canVoidOrEdit = UserSessionManager.getInstance(this).canVoidOrEditRecords();
+            btnEditReceipt.setVisibility(canVoidOrEdit ? View.VISIBLE : View.GONE);
+            btnVoidPayment.setVisibility(canVoidOrEdit ? View.VISIBLE : View.GONE);
+        }
+
+        if (payment.lastEditedAt > 0L) {
+            tvReceiptEditedBadge.setVisibility(View.VISIBLE);
+            String editor = payment.lastEditedByName != null ? payment.lastEditedByName : "Officer";
+            tvReceiptEditedBadge.setText("Edited by " + editor + " on " + CurrencyFormatter.formatDateTime(payment.lastEditedAt));
+        } else {
+            tvReceiptEditedBadge.setVisibility(View.GONE);
         }
 
         String shortSig = payment.qrSignature.length() > 16
@@ -214,26 +242,47 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
             ivReceiptQrCode.setImageBitmap(qrBitmap);
         }
 
-        if (payment.isGcash() && payment.proofImagePath != null && new File(payment.proofImagePath).exists()) {
+        String displayProofPath = payment.proofImagePath;
+        String displayProofUrl = payment.proofImageUrl != null ? payment.proofImageUrl : payment.remoteProofUrl;
+
+        if (payment.isGcash() && (displayProofPath != null || displayProofUrl != null)) {
             cardReceiptGcashProof.setVisibility(View.VISIBLE);
-            File proofFile = new File(payment.proofImagePath);
-            Glide.with(this)
-                    .load(proofFile)
-                    .centerCrop()
-                    .into(ivReceiptProofThumbnail);
-            cardReceiptGcashProof.setOnClickListener(v -> showFullProofDialog(proofFile));
+            if (displayProofPath != null && new File(displayProofPath).exists()) {
+                File proofFile = new File(displayProofPath);
+                Glide.with(this).load(proofFile).centerCrop().into(ivReceiptProofThumbnail);
+                cardReceiptGcashProof.setOnClickListener(v -> showFullProofDialog(proofFile, null));
+            } else if (displayProofUrl != null && !displayProofUrl.trim().isEmpty()) {
+                Glide.with(this).load(displayProofUrl).centerCrop().into(ivReceiptProofThumbnail);
+                cardReceiptGcashProof.setOnClickListener(v -> showFullProofDialog(null, displayProofUrl));
+            } else {
+                cardReceiptGcashProof.setVisibility(View.GONE);
+            }
         } else {
             cardReceiptGcashProof.setVisibility(View.GONE);
         }
     }
 
-    private void showFullProofDialog(File proofFile) {
+    private void openEditReceiptScreen() {
+        if (!UserSessionManager.getInstance(this).canVoidOrEditRecords()) {
+            Snackbar.make(rootView, "Auditors have read-only access.", Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(this, EditReceiptActivity.class);
+        intent.putExtra(EditReceiptActivity.EXTRA_RECEIPT_ID, receiptId);
+        startActivity(intent);
+    }
+
+    private void showFullProofDialog(File proofFile, String proofUrl) {
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_image_viewer, null);
         ImageView ivFull = dialogView.findViewById(R.id.ivFullProofDialog);
-        Glide.with(this).load(proofFile).into(ivFull);
+        if (proofFile != null && proofFile.exists()) {
+            Glide.with(this).load(proofFile).into(ivFull);
+        } else if (proofUrl != null) {
+            Glide.with(this).load(proofUrl).into(ivFull);
+        }
 
         new MaterialAlertDialogBuilder(this)
-                .setTitle("GCash Proof of Payment")
+                .setTitle("Proof of Payment")
                 .setView(dialogView)
                 .setPositiveButton("Close", null)
                 .show();
@@ -295,15 +344,18 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
                 }
                 tilVoidReason.setError(null);
 
+                loadingOverlay.show("Voiding Record...", "Updating across all connected devices");
                 repository.voidPayment(currentPayment.receiptId, reason, new PaymentRepository.ResultCallback<PaymentEntity>() {
                     @Override
                     public void onSuccess(PaymentEntity result) {
+                        loadingOverlay.hide();
                         dialog.dismiss();
                         Snackbar.make(rootView, "Payment marked as VOIDED and recorded in Audit Log.", Snackbar.LENGTH_LONG).show();
                     }
 
                     @Override
                     public void onError(String message) {
+                        loadingOverlay.hide();
                         tilVoidReason.setError(message);
                     }
                 });
@@ -311,5 +363,13 @@ public class ReceiptDetailActivity extends BaseThemedActivity {
         });
 
         dialog.show();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
+        super.onDestroy();
     }
 }

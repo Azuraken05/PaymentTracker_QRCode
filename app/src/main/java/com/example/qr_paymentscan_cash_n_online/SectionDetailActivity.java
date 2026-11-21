@@ -27,6 +27,9 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
+import android.widget.Toast;
 
 import com.bumptech.glide.Glide;
 import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
@@ -35,6 +38,7 @@ import com.example.qr_paymentscan_cash_n_online.data.ExpenseEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.data.SectionEntity;
+import com.example.qr_paymentscan_cash_n_online.sync.FirebaseSyncManager;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.ui.ExpenseAdapter;
 import com.example.qr_paymentscan_cash_n_online.ui.PaymentAdapter;
@@ -107,6 +111,9 @@ public class SectionDetailActivity extends BaseThemedActivity {
     private TextView tvEmptySectionListTitle;
     private TextView tvEmptySectionListSubtitle;
     private ExtendedFloatingActionButton fabNewPayment;
+    private SwipeRefreshLayout swipeRefresh;
+    private LoadingOverlayController loadingOverlay;
+    private boolean hasLoadedSectionOnce = false;
 
     private final ActivityResultLauncher<ScanOptions> qrCameraScanLauncher =
             registerForActivityResult(new ScanContract(), result -> {
@@ -144,6 +151,13 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
         repository = new PaymentRepository(this);
         sessionManager = UserSessionManager.getInstance(this);
+        loadingOverlay = new LoadingOverlayController(this);
+
+        swipeRefresh = findViewById(R.id.swipeRefreshSectionDetail);
+        if (swipeRefresh != null) {
+            swipeRefresh.setColorSchemeResources(R.color.primary);
+            swipeRefresh.setOnRefreshListener(this::handlePullToRefresh);
+        }
 
         ImageButton btnBackSection = findViewById(R.id.btnBackSection);
         btnRenameSectionTop = findViewById(R.id.btnRenameSectionTop);
@@ -211,8 +225,12 @@ public class SectionDetailActivity extends BaseThemedActivity {
         expenseAdapter = new ExpenseAdapter(new ExpenseAdapter.OnExpenseActionListener() {
             @Override
             public void onViewProofClicked(ExpenseEntity expense) {
-                if (expense.proofImagePath != null) {
-                    showFullProofDialog(new File(expense.proofImagePath));
+                String localPath = expense.proofImagePath;
+                String remoteUrl = expense.proofImageUrl != null ? expense.proofImageUrl : expense.remoteProofUrl;
+                if (localPath != null && new File(localPath).exists()) {
+                    showFullProofDialog(new File(localPath), null);
+                } else if (remoteUrl != null && !remoteUrl.trim().isEmpty()) {
+                    showFullProofDialog(null, remoteUrl);
                 }
             }
 
@@ -297,6 +315,36 @@ public class SectionDetailActivity extends BaseThemedActivity {
         super.onResume();
         applyRolePermissionsUi();
         refreshCombinedTreeBalance();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
+        super.onDestroy();
+    }
+
+    private void handlePullToRefresh() {
+        if (!FirebaseSyncManager.isFirebaseConfigured(this)) {
+            if (swipeRefresh != null) {
+                swipeRefresh.setRefreshing(false);
+            }
+            Snackbar.make(rootView, "Local mode: Firebase is not configured, nothing to refresh.", Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        if (!FirebaseSyncManager.isNetworkConnected(this)) {
+            if (swipeRefresh != null) {
+                swipeRefresh.setRefreshing(false);
+            }
+            Snackbar.make(rootView, "Offline: waiting for internet to refresh from the cloud.", Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        FirebaseSyncManager.runForegroundSync(this, success -> {
+            if (swipeRefresh != null) {
+                swipeRefresh.setRefreshing(false);
+            }
+        });
     }
 
     private void applyRolePermissionsUi() {
@@ -397,16 +445,22 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
     private void observeSectionData() {
         repository.observeSectionById(sectionId).observe(this, section -> {
-            if (section != null) {
-                sectionName = section.sectionName;
-                tvSectionTitle.setText(section.sectionName);
-                if (section.description != null && !section.description.isEmpty()) {
-                    tvSectionSubtitle.setText(section.description);
-                } else {
-                    tvSectionSubtitle.setText("Section Payment & Expense Ledger");
+            if (section == null) {
+                if (hasLoadedSectionOnce && !isFinishing() && !isDestroyed()) {
+                    Toast.makeText(SectionDetailActivity.this, R.string.folder_deleted_toast, Toast.LENGTH_SHORT).show();
+                    finish();
                 }
-                buildBreadcrumbNavigation();
+                return;
             }
+            hasLoadedSectionOnce = true;
+            sectionName = section.sectionName;
+            tvSectionTitle.setText(section.sectionName);
+            if (section.description != null && !section.description.isEmpty()) {
+                tvSectionSubtitle.setText(section.description);
+            } else {
+                tvSectionSubtitle.setText("Section Payment & Expense Ledger");
+            }
+            buildBreadcrumbNavigation();
         });
 
         repository.observeSubfolderSummaries(sectionId).observe(this, subfolders -> {
@@ -582,15 +636,18 @@ public class SectionDetailActivity extends BaseThemedActivity {
                 }
                 tilName.setError(null);
 
+                loadingOverlay.show("Creating Sub-Folder...", "Updating across all connected devices");
                 repository.createSection(name, desc, sectionId, new PaymentRepository.ResultCallback<SectionEntity>() {
                     @Override
                     public void onSuccess(SectionEntity result) {
+                        loadingOverlay.hide();
                         dialog.dismiss();
                         Snackbar.make(rootView, "Created sub-folder: " + result.sectionName, Snackbar.LENGTH_SHORT).show();
                     }
 
                     @Override
                     public void onError(String message) {
+                        loadingOverlay.hide();
                         tilName.setError(message);
                     }
                 });
@@ -624,9 +681,11 @@ public class SectionDetailActivity extends BaseThemedActivity {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save Name", (d, w) -> {
                     String newName = etNewName.getText().toString().trim();
+                    loadingOverlay.show("Renaming Folder...", "Updating across all connected devices");
                     repository.renameSection(targetFolderId, newName, new PaymentRepository.ResultCallback<SectionEntity>() {
                         @Override
                         public void onSuccess(SectionEntity result) {
+                            loadingOverlay.hide();
                             if (targetFolderId == sectionId) {
                                 sectionName = result.sectionName;
                                 tvSectionTitle.setText(result.sectionName);
@@ -637,6 +696,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
                         @Override
                         public void onError(String message) {
+                            loadingOverlay.hide();
                             Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                         }
                     });
@@ -664,9 +724,11 @@ public class SectionDetailActivity extends BaseThemedActivity {
                         .setMessage(message)
                         .setNegativeButton("Cancel", null)
                         .setPositiveButton("Delete Permanently", (d, w) -> {
+                            loadingOverlay.show("Deleting Folder...", "Updating across all connected devices");
                             repository.deleteFolderCascade(targetFolderId, new PaymentRepository.ResultCallback<PaymentRepository.FolderDeleteSummary>() {
                                 @Override
                                 public void onSuccess(PaymentRepository.FolderDeleteSummary deleted) {
+                                    loadingOverlay.hide();
                                     if (targetFolderId == sectionId) {
                                         finish();
                                     } else {
@@ -676,6 +738,7 @@ public class SectionDetailActivity extends BaseThemedActivity {
 
                                 @Override
                                 public void onError(String err) {
+                                    loadingOverlay.hide();
                                     Snackbar.make(rootView, err, Snackbar.LENGTH_LONG).show();
                                 }
                             });
@@ -691,8 +754,8 @@ public class SectionDetailActivity extends BaseThemedActivity {
     }
 
     private void showVoidExpenseDialog(ExpenseEntity expense) {
-        if (!sessionManager.canVoidOrDeleteOrManageMembers()) {
-            Snackbar.make(rootView, "Only the Room OWNER can void expense deductions.", Snackbar.LENGTH_SHORT).show();
+        if (!sessionManager.canVoidOrEditRecords()) {
+            Snackbar.make(rootView, "Auditors have read-only access and cannot void expense deductions.", Snackbar.LENGTH_SHORT).show();
             return;
         }
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_void_payment, null);
@@ -715,15 +778,18 @@ public class SectionDetailActivity extends BaseThemedActivity {
                 }
                 tilVoidReason.setError(null);
 
+                loadingOverlay.show("Voiding Expense...", "Updating across all connected devices");
                 repository.voidExpense(expense.id, reason, new PaymentRepository.ResultCallback<ExpenseEntity>() {
                     @Override
                     public void onSuccess(ExpenseEntity result) {
+                        loadingOverlay.hide();
                         dialog.dismiss();
                         Snackbar.make(rootView, "Expense voided. Amount restored to Net Remaining Balance.", Snackbar.LENGTH_LONG).show();
                     }
 
                     @Override
                     public void onError(String message) {
+                        loadingOverlay.hide();
                         tilVoidReason.setError(message);
                     }
                 });
@@ -733,10 +799,14 @@ public class SectionDetailActivity extends BaseThemedActivity {
         dialog.show();
     }
 
-    private void showFullProofDialog(File proofFile) {
+    private void showFullProofDialog(File proofFile, String proofUrl) {
         View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_image_viewer, null);
         ImageView ivFull = dialogView.findViewById(R.id.ivFullProofDialog);
-        Glide.with(this).load(proofFile).into(ivFull);
+        if (proofFile != null && proofFile.exists()) {
+            Glide.with(this).load(proofFile).into(ivFull);
+        } else if (proofUrl != null) {
+            Glide.with(this).load(proofUrl).into(ivFull);
+        }
 
         new MaterialAlertDialogBuilder(this)
                 .setTitle("Expense Receipt / Proof Photo")

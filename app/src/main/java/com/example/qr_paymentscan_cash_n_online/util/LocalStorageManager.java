@@ -249,7 +249,7 @@ public final class LocalStorageManager {
                     "Last Name",
                     "Payment Purpose",
                     "Payment Method",
-                    "GCash Reference No.",
+                    "Reference / Transaction ID",
                     "Amount (₱)",
                     "Status",
                     "Void Reason",
@@ -282,8 +282,12 @@ public final class LocalStorageManager {
                     ws.value(rowIdx, 3, p.firstName);
                     ws.value(rowIdx, 4, p.lastName);
                     ws.value(rowIdx, 5, p.purpose);
+                    boolean hasProof = (p.proofImagePath != null && !p.proofImagePath.isEmpty())
+                            || (p.remoteProofUrl != null && !p.remoteProofUrl.isEmpty())
+                            || (p.proofImageUrl != null && !p.proofImageUrl.isEmpty());
+                    String refValue = PaymentValidationHelper.formatReferenceDisplay(p.paymentMethod, p.gcashReferenceNo, hasProof);
                     ws.value(rowIdx, 6, p.paymentMethod);
-                    ws.value(rowIdx, 7, p.gcashReferenceNo != null ? p.gcashReferenceNo : "N/A (Cash)");
+                    ws.value(rowIdx, 7, refValue);
                     ws.value(rowIdx, 8, p.amount);
                     ws.style(rowIdx, 8).format("₱#,##0.00").set();
                     ws.value(rowIdx, 9, p.status);

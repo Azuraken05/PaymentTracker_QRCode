@@ -7,6 +7,8 @@ import android.net.Network;
 import android.net.NetworkCapabilities;
 import android.net.NetworkRequest;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 
 import androidx.annotation.NonNull;
 import androidx.lifecycle.LiveData;
@@ -28,6 +30,7 @@ import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RosterStudentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.SectionEntity;
+import com.example.qr_paymentscan_cash_n_online.util.CloudImageStorageManager;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.gms.tasks.Tasks;
@@ -59,6 +62,10 @@ public final class FirebaseSyncManager {
         PENDING_RECORDS
     }
 
+    private static final Object SYNC_LOCK = new Object();
+    private static final java.util.Set<String> MIRRORED_COLLECTIONS = new java.util.HashSet<>(
+            java.util.Arrays.asList("sections", "payments", "expenses", "roster_students")
+    );
     private static final String UNIQUE_ONE_TIME_SYNC = "PaymentTrackerImmediateSync";
     private static final String UNIQUE_PERIODIC_SYNC = "PaymentTrackerPeriodicSync";
     private static final String PREFS_DELETED_QUEUE = "firebase_deleted_records_queue";
@@ -260,6 +267,43 @@ public final class FirebaseSyncManager {
      * to Firebase Firestore (both top-level and rooms/{roomId}/... subcollections) + Storage.
      */
     public static boolean performBlockingCloudSync(Context context) {
+        synchronized (SYNC_LOCK) {
+            return performBlockingCloudSyncLocked(context);
+        }
+    }
+
+    public interface SyncCompletionListener {
+        void onSyncFinished(boolean success);
+    }
+
+    /**
+     * Runs a full push of pending local records, re-attaches the realtime listeners for the active room so a
+     * fresh server snapshot is pulled down, then reports back on the main thread. Used by manual Sync Now
+     * and pull-to-refresh.
+     */
+    public static void runForegroundSync(Context context, SyncCompletionListener listener) {
+        final Context appCtx = context.getApplicationContext();
+        final Handler mainHandler = new Handler(Looper.getMainLooper());
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            boolean ok = false;
+            try {
+                ok = performBlockingCloudSync(appCtx);
+                String roomId = UserSessionManager.getInstance(appCtx).getActiveRoomId();
+                if (roomId != null && !roomId.isEmpty()
+                        && isFirebaseConfigured(appCtx) && isNetworkConnected(appCtx)) {
+                    FirestoreRealtimeSyncManager.getInstance(appCtx).restartListeningForRoom(roomId);
+                }
+            } catch (Exception ignored) {
+            }
+            final boolean result = ok;
+            refreshSyncStatusUi(appCtx);
+            if (listener != null) {
+                mainHandler.post(() -> listener.onSyncFinished(result));
+            }
+        });
+    }
+
+    private static boolean performBlockingCloudSyncLocked(Context context) {
         Context appCtx = context.getApplicationContext();
         if (!isFirebaseConfigured(appCtx) || !isNetworkConnected(appCtx)) {
             refreshSyncStatusUi(appCtx);
@@ -275,6 +319,9 @@ public final class FirebaseSyncManager {
             session.syncFromFirebaseAuthIfAvailable();
             String currentUserId = session.getCurrentUserId();
             String defaultRoomId = session.getActiveRoomId();
+
+            // 0. Flush any pending Cloudinary uploads if configured
+            CloudImageStorageManager.flushPendingUploads(appCtx);
 
             // 1. Process queued folder/record deletions first
             flushQueuedDeletions(appCtx, firestore);
@@ -436,6 +483,9 @@ public final class FirebaseSyncManager {
                 doc.put("paymentMethod", p.paymentMethod);
                 doc.put("gcashReferenceNo", p.gcashReferenceNo);
                 doc.put("remoteProofUrl", remoteProofUrl);
+                doc.put("proofImageUrl", p.proofImageUrl);
+                doc.put("lastEditedByName", p.lastEditedByName);
+                doc.put("lastEditedAt", p.lastEditedAt);
                 doc.put("status", p.status);
                 doc.put("paymentStatus", p.paymentStatus);
                 doc.put("remainingBalance", p.remainingBalance);
@@ -565,6 +615,7 @@ public final class FirebaseSyncManager {
                 doc.put("category", ex.category);
                 doc.put("notes", ex.notes);
                 doc.put("remoteProofUrl", remoteProofUrl);
+                doc.put("proofImageUrl", ex.proofImageUrl);
                 doc.put("status", ex.status);
                 doc.put("voidReason", ex.voidReason);
                 doc.put("createdAt", ex.createdAt);
@@ -685,25 +736,35 @@ public final class FirebaseSyncManager {
             if (arr.length() == 0) {
                 return;
             }
+            JSONArray remaining = new JSONArray();
             for (int i = 0; i < arr.length(); i++) {
                 JSONObject item = arr.getJSONObject(i);
-                String roomId = item.optString("roomId", "");
-                String col = item.getString("collection");
-                String docId = item.getString("docId");
-                Tasks.await(firestore.collection(col).document(docId).delete(), 15, TimeUnit.SECONDS);
-                if (!roomId.isEmpty()) {
-                    Tasks.await(
-                            firestore.collection("rooms")
-                                    .document(roomId)
-                                    .collection(col)
-                                    .document(docId)
-                                    .delete(),
-                            15,
-                            TimeUnit.SECONDS
-                    );
+                try {
+                    String roomId = item.optString("roomId", "");
+                    String col = item.getString("collection");
+                    String docId = item.getString("docId");
+                    if (MIRRORED_COLLECTIONS.contains(col)) {
+                        try {
+                            Tasks.await(firestore.collection(col).document(docId).delete(), 15, TimeUnit.SECONDS);
+                        } catch (Exception ignoredMirror) {
+                        }
+                    }
+                    if (!roomId.isEmpty()) {
+                        Tasks.await(
+                                firestore.collection("rooms")
+                                        .document(roomId)
+                                        .collection(col)
+                                        .document(docId)
+                                        .delete(),
+                                15,
+                                TimeUnit.SECONDS
+                        );
+                    }
+                } catch (Exception e) {
+                    remaining.put(item);
                 }
             }
-            prefs.edit().putString(KEY_DELETED_JSON, "[]").apply();
+            prefs.edit().putString(KEY_DELETED_JSON, remaining.toString()).apply();
         } catch (Exception ignored) {
         }
     }

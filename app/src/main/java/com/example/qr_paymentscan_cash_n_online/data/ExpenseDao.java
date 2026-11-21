@@ -59,6 +59,15 @@ public interface ExpenseDao {
     @Query("DELETE FROM expenses WHERE room_id = :roomId")
     void deleteExpensesByRoomId(String roomId);
 
+    @Query("DELETE FROM expenses WHERE id = :expenseId")
+    void deleteExpenseById(long expenseId);
+
+    @Query("SELECT * FROM expenses WHERE room_id = :roomId AND sync_status = 'SYNCED'")
+    List<ExpenseEntity> getSyncedExpensesByRoomSync(String roomId);
+
+    @Query("UPDATE expenses SET proof_image_url = :proofImageUrl, image_sync_status = :imageSyncStatus, updated_at = :updatedAt WHERE id = :id")
+    void updateProofImageUrl(long id, String proofImageUrl, String imageSyncStatus, long updatedAt);
+
     @Query("SELECT COUNT(*) FROM expenses WHERE sync_status = 'PENDING'")
     LiveData<Integer> observePendingCount();
 }

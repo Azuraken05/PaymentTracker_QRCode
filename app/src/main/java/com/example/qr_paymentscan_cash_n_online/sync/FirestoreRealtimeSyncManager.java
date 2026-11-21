@@ -10,11 +10,13 @@ import com.example.qr_paymentscan_cash_n_online.data.ExpenseEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
+import com.example.qr_paymentscan_cash_n_online.data.RosterStudentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.SectionEntity;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.firebase.auth.FirebaseAuth;
 import com.google.firebase.auth.FirebaseUser;
+import com.google.firebase.firestore.DocumentChange;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
@@ -24,6 +26,8 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * Manages live Firestore addSnapshotListeners scoped to the active Private Room (rooms/{roomId})
@@ -36,6 +40,15 @@ public final class FirestoreRealtimeSyncManager {
     public interface RoomAccessRevokedListener {
         void onAccessRevoked(String roomId, String reason);
     }
+
+    private static final String COL_SECTIONS = "sections";
+    private static final String COL_PAYMENTS = "payments";
+    private static final String COL_EXPENSES = "expenses";
+    private static final String COL_ROSTER = "roster_students";
+    private static final String COL_AUDIT_LOGS = "audit_logs";
+
+    /** Single-threaded so ADDED / MODIFIED / REMOVED changes are applied to Room strictly in order. */
+    private static final ExecutorService SNAPSHOT_EXECUTOR = Executors.newSingleThreadExecutor();
 
     private static volatile FirestoreRealtimeSyncManager INSTANCE;
 
@@ -167,11 +180,7 @@ public final class FirestoreRealtimeSyncManager {
                         if (error != null || snapshots == null) {
                             return;
                         }
-                        AppDatabase.DB_EXECUTOR.execute(() -> {
-                            for (DocumentSnapshot doc : snapshots.getDocuments()) {
-                                applyRemoteSectionSnapshot(db, roomId, doc);
-                            }
-                        });
+                        SNAPSHOT_EXECUTOR.execute(() -> processCollectionSnapshot(db, roomId, COL_SECTIONS, snapshots));
                     });
             activeRegistrations.add(sectionsReg);
 
@@ -183,11 +192,7 @@ public final class FirestoreRealtimeSyncManager {
                         if (error != null || snapshots == null) {
                             return;
                         }
-                        AppDatabase.DB_EXECUTOR.execute(() -> {
-                            for (DocumentSnapshot doc : snapshots.getDocuments()) {
-                                applyRemotePaymentSnapshot(db, roomId, doc);
-                            }
-                        });
+                        SNAPSHOT_EXECUTOR.execute(() -> processCollectionSnapshot(db, roomId, COL_PAYMENTS, snapshots));
                     });
             activeRegistrations.add(paymentsReg);
 
@@ -199,11 +204,7 @@ public final class FirestoreRealtimeSyncManager {
                         if (error != null || snapshots == null) {
                             return;
                         }
-                        AppDatabase.DB_EXECUTOR.execute(() -> {
-                            for (DocumentSnapshot doc : snapshots.getDocuments()) {
-                                applyRemoteExpenseSnapshot(db, roomId, doc);
-                            }
-                        });
+                        SNAPSHOT_EXECUTOR.execute(() -> processCollectionSnapshot(db, roomId, COL_EXPENSES, snapshots));
                     });
             activeRegistrations.add(expensesReg);
 
@@ -215,13 +216,21 @@ public final class FirestoreRealtimeSyncManager {
                         if (error != null || snapshots == null) {
                             return;
                         }
-                        AppDatabase.DB_EXECUTOR.execute(() -> {
-                            for (DocumentSnapshot doc : snapshots.getDocuments()) {
-                                applyRemoteAuditLogSnapshot(db, roomId, doc);
-                            }
-                        });
+                        SNAPSHOT_EXECUTOR.execute(() -> processCollectionSnapshot(db, roomId, COL_AUDIT_LOGS, snapshots));
                     });
             activeRegistrations.add(logsReg);
+
+            // 7. Listen to Room Roster Students
+            ListenerRegistration rosterReg = firestore.collection("rooms")
+                    .document(roomId)
+                    .collection(COL_ROSTER)
+                    .addSnapshotListener((snapshots, error) -> {
+                        if (error != null || snapshots == null) {
+                            return;
+                        }
+                        SNAPSHOT_EXECUTOR.execute(() -> processCollectionSnapshot(db, roomId, COL_ROSTER, snapshots));
+                    });
+            activeRegistrations.add(rosterReg);
         } catch (Exception ignored) {
         }
     }
@@ -275,6 +284,224 @@ public final class FirestoreRealtimeSyncManager {
         });
     }
 
+    /**
+     * Applies a live Firestore QuerySnapshot of a room sub-collection to local Room SQLite:
+     * ADDED / MODIFIED documents are upserted as SYNCED (unless a newer local PENDING edit exists),
+     * REMOVED documents delete the matching local row, and on a full server snapshot any local SYNCED
+     * row for this room that no longer exists in Firestore is removed (deleted from another device).
+     */
+    private void processCollectionSnapshot(AppDatabase db, String roomId, String collection, QuerySnapshot snapshots) {
+        try {
+            for (DocumentChange change : snapshots.getDocumentChanges()) {
+                DocumentSnapshot doc = change.getDocument();
+                if (change.getType() == DocumentChange.Type.REMOVED) {
+                    removeLocalDocument(db, collection, doc);
+                } else {
+                    upsertLocalDocument(db, roomId, collection, doc);
+                }
+            }
+            boolean fullServerSnapshot = !snapshots.getMetadata().isFromCache()
+                    && !snapshots.getMetadata().hasPendingWrites();
+            if (fullServerSnapshot) {
+                Set<String> remoteKeys = new HashSet<>();
+                for (DocumentSnapshot doc : snapshots.getDocuments()) {
+                    String key = remoteKeyFor(collection, doc);
+                    if (key != null) {
+                        remoteKeys.add(key);
+                    }
+                }
+                reconcileLocalWithRemote(db, roomId, collection, remoteKeys);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void upsertLocalDocument(AppDatabase db, String roomId, String collection, DocumentSnapshot doc) {
+        switch (collection) {
+            case COL_SECTIONS:
+                applyRemoteSectionSnapshot(db, roomId, doc);
+                break;
+            case COL_PAYMENTS:
+                applyRemotePaymentSnapshot(db, roomId, doc);
+                break;
+            case COL_EXPENSES:
+                applyRemoteExpenseSnapshot(db, roomId, doc);
+                break;
+            case COL_ROSTER:
+                applyRemoteRosterStudentSnapshot(db, roomId, doc);
+                break;
+            case COL_AUDIT_LOGS:
+                applyRemoteAuditLogSnapshot(db, roomId, doc);
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void removeLocalDocument(AppDatabase db, String collection, DocumentSnapshot doc) {
+        switch (collection) {
+            case COL_SECTIONS: {
+                Long id = remoteNumericId(doc, "SEC-");
+                if (id != null) {
+                    db.sectionDao().deleteSectionById(id);
+                }
+                break;
+            }
+            case COL_PAYMENTS: {
+                String receiptId = safeStr(doc.getString("receiptId"), doc.getId());
+                db.paymentDao().deletePaymentByReceiptId(receiptId);
+                break;
+            }
+            case COL_EXPENSES: {
+                Long id = remoteNumericId(doc, "EXP-");
+                if (id != null) {
+                    db.expenseDao().deleteExpenseById(id);
+                }
+                break;
+            }
+            case COL_ROSTER: {
+                Long id = remoteNumericId(doc, "ROSTER-");
+                if (id != null) {
+                    db.rosterStudentDao().deleteRosterStudentById(id);
+                }
+                break;
+            }
+            case COL_AUDIT_LOGS: {
+                long timestamp = safeLong(doc.getLong("timestamp"), 0L);
+                String actionType = doc.getString("actionType");
+                if (timestamp > 0L && actionType != null) {
+                    AuditLogEntity existing = db.auditLogDao().findByTimestampAndActionSync(timestamp, actionType);
+                    if (existing != null && AuditLogEntity.SYNC_SYNCED.equals(existing.syncStatus)) {
+                        db.auditLogDao().deleteLogById(existing.id);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    private String remoteKeyFor(String collection, DocumentSnapshot doc) {
+        switch (collection) {
+            case COL_SECTIONS:
+                return stringOrNull(remoteNumericId(doc, "SEC-"));
+            case COL_PAYMENTS:
+                return safeStr(doc.getString("receiptId"), doc.getId());
+            case COL_EXPENSES:
+                return stringOrNull(remoteNumericId(doc, "EXP-"));
+            case COL_ROSTER:
+                return stringOrNull(remoteNumericId(doc, "ROSTER-"));
+            case COL_AUDIT_LOGS: {
+                long timestamp = safeLong(doc.getLong("timestamp"), 0L);
+                String actionType = doc.getString("actionType");
+                return (timestamp > 0L && actionType != null) ? (timestamp + "|" + actionType) : null;
+            }
+            default:
+                return null;
+        }
+    }
+
+    private void reconcileLocalWithRemote(AppDatabase db, String roomId, String collection, Set<String> remoteKeys) {
+        switch (collection) {
+            case COL_SECTIONS: {
+                for (SectionEntity s : db.sectionDao().getSyncedSectionsByRoomSync(roomId)) {
+                    if (!remoteKeys.contains(String.valueOf(s.id))) {
+                        db.sectionDao().deleteSectionById(s.id);
+                    }
+                }
+                break;
+            }
+            case COL_PAYMENTS: {
+                for (PaymentEntity p : db.paymentDao().getSyncedPaymentsByRoomSync(roomId)) {
+                    if (!remoteKeys.contains(p.receiptId)) {
+                        db.paymentDao().deletePaymentByReceiptId(p.receiptId);
+                    }
+                }
+                break;
+            }
+            case COL_EXPENSES: {
+                for (ExpenseEntity ex : db.expenseDao().getSyncedExpensesByRoomSync(roomId)) {
+                    if (!remoteKeys.contains(String.valueOf(ex.id))) {
+                        db.expenseDao().deleteExpenseById(ex.id);
+                    }
+                }
+                break;
+            }
+            case COL_ROSTER: {
+                for (RosterStudentEntity r : db.rosterStudentDao().getSyncedRosterByRoomSync(roomId)) {
+                    if (!remoteKeys.contains(String.valueOf(r.id))) {
+                        db.rosterStudentDao().deleteRosterStudentById(r.id);
+                    }
+                }
+                break;
+            }
+            case COL_AUDIT_LOGS: {
+                for (AuditLogEntity log : db.auditLogDao().getSyncedLogsByRoomSync(roomId)) {
+                    if (!remoteKeys.contains(log.timestamp + "|" + log.actionType)) {
+                        db.auditLogDao().deleteLogById(log.id);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+
+    private void applyRemoteRosterStudentSnapshot(AppDatabase db, String roomId, DocumentSnapshot doc) {
+        try {
+            Long id = remoteNumericId(doc, "ROSTER-");
+            if (id == null) {
+                return;
+            }
+            long remoteUpdatedAt = safeLong(doc.getLong("updatedAt"), 0L);
+            RosterStudentEntity local = db.rosterStudentDao().findByIdSync(id);
+            if (local != null
+                    && "PENDING".equals(local.syncStatus)
+                    && local.updatedAt > remoteUpdatedAt) {
+                return;
+            }
+            long sectionId = safeLong(doc.getLong("sectionId"), 0L);
+            String firstName = safeStr(doc.getString("firstName"), "");
+            String lastName = safeStr(doc.getString("lastName"), "");
+            if (sectionId <= 0L || (firstName.isEmpty() && lastName.isEmpty())) {
+                return;
+            }
+            RosterStudentEntity entity = new RosterStudentEntity(
+                    sectionId,
+                    firstName,
+                    lastName,
+                    doc.getString("studentNumber"),
+                    "SYNCED",
+                    remoteUpdatedAt > 0 ? remoteUpdatedAt : System.currentTimeMillis(),
+                    roomId
+            );
+            entity.id = id;
+            db.rosterStudentDao().insertOrReplaceRosterStudent(entity);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static Long remoteNumericId(DocumentSnapshot doc, String docIdPrefix) {
+        Long id = doc.getLong("id");
+        if (id != null) {
+            return id;
+        }
+        String docId = doc.getId();
+        if (docId != null && docId.startsWith(docIdPrefix)) {
+            try {
+                return Long.parseLong(docId.substring(docIdPrefix.length()));
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static String stringOrNull(Long value) {
+        return value != null ? String.valueOf(value) : null;
+    }
+
     private String resolveCurrentUserId(UserSessionManager session) {
         try {
             FirebaseUser fbUser = FirebaseAuth.getInstance().getCurrentUser();
@@ -284,6 +511,15 @@ public final class FirestoreRealtimeSyncManager {
         } catch (Exception ignored) {
         }
         return session.getCurrentUserId();
+    }
+
+    /**
+     * Forces every listener for the room to detach and re-attach so a fresh server snapshot is delivered
+     * (used by pull-to-refresh).
+     */
+    public synchronized void restartListeningForRoom(String roomId) {
+        stopListening();
+        startListeningForRoom(roomId);
     }
 
     public synchronized void stopListening() {
@@ -546,6 +782,25 @@ public final class FirestoreRealtimeSyncManager {
                     studentIdentityKey,
                     overrideReason
             );
+            entity.proofImageUrl = doc.getString("proofImageUrl");
+            if (entity.proofImageUrl == null && local != null) {
+                entity.proofImageUrl = local.proofImageUrl;
+            }
+            if (entity.proofImageUrl != null && !entity.proofImageUrl.isEmpty()) {
+                entity.imageSyncStatus = PaymentEntity.IMAGE_STATUS_UPLOADED;
+            } else if (local != null) {
+                entity.imageSyncStatus = local.imageSyncStatus;
+            }
+            entity.lastEditedByName = doc.getString("lastEditedByName");
+            if (entity.lastEditedByName == null && local != null) {
+                entity.lastEditedByName = local.lastEditedByName;
+            }
+            Long remoteEditedAt = doc.getLong("lastEditedAt");
+            if (remoteEditedAt != null && remoteEditedAt > 0L) {
+                entity.lastEditedAt = remoteEditedAt;
+            } else if (local != null) {
+                entity.lastEditedAt = local.lastEditedAt;
+            }
             if (local != null) {
                 entity.id = local.id;
             }
@@ -606,6 +861,15 @@ public final class FirestoreRealtimeSyncManager {
                     actorRole
             );
             entity.id = id;
+            entity.proofImageUrl = doc.getString("proofImageUrl");
+            if (entity.proofImageUrl == null && local != null) {
+                entity.proofImageUrl = local.proofImageUrl;
+            }
+            if (entity.proofImageUrl != null && !entity.proofImageUrl.isEmpty()) {
+                entity.imageSyncStatus = ExpenseEntity.IMAGE_STATUS_UPLOADED;
+            } else if (local != null) {
+                entity.imageSyncStatus = local.imageSyncStatus;
+            }
             db.expenseDao().insertOrReplaceExpense(entity);
         } catch (Exception ignored) {
         }
@@ -613,20 +877,14 @@ public final class FirestoreRealtimeSyncManager {
 
     private void applyRemoteAuditLogSnapshot(AppDatabase db, String roomId, DocumentSnapshot doc) {
         try {
-            Long id = doc.getLong("id");
             long timestamp = safeLong(doc.getLong("timestamp"), 0L);
             String actionType = doc.getString("actionType");
             String details = doc.getString("details");
             if (actionType == null || details == null || timestamp <= 0L) {
                 return;
             }
-            if (id != null) {
-                List<AuditLogEntity> existingLogs = db.auditLogDao().getAllLogsSync();
-                for (AuditLogEntity ex : existingLogs) {
-                    if (ex.timestamp == timestamp && actionType.equals(ex.actionType)) {
-                        return;
-                    }
-                }
+            if (db.auditLogDao().findByTimestampAndActionSync(timestamp, actionType) != null) {
+                return;
             }
             AuditLogEntity log = new AuditLogEntity(
                     actionType,

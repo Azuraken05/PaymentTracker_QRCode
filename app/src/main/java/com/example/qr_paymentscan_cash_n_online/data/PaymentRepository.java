@@ -14,18 +14,22 @@ import com.example.qr_paymentscan_cash_n_online.util.RoomSecurityHelper;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.gms.tasks.Tasks;
+import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.QuerySnapshot;
 import com.google.firebase.firestore.SetOptions;
+import com.google.firebase.firestore.WriteBatch;
 
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -1368,6 +1372,29 @@ public class PaymentRepository {
                 List<PaymentEntity> payments = paymentDao.getPaymentsBySectionIdsSync(allSectionIds);
                 List<ExpenseEntity> expenses = expenseDao.getExpensesBySectionIdsSync(allSectionIds);
 
+                List<RosterStudentEntity> rosterRows = new ArrayList<>();
+                for (Long secId : allSectionIds) {
+                    List<RosterStudentEntity> rows = rosterStudentDao.getRosterBySectionSync(secId);
+                    if (rows != null) {
+                        rosterRows.addAll(rows);
+                    }
+                }
+                String roomId = (target.roomId != null && !target.roomId.isEmpty())
+                        ? target.roomId
+                        : sessionManager.getActiveRoomId();
+
+                Set<String> lockDocIds = new LinkedHashSet<>();
+                for (PaymentEntity p : payments) {
+                    SectionEntity paymentSection = sectionDao.findByIdSync(p.sectionId);
+                    double fee = paymentSection != null ? paymentSection.targetFeeAmount : 0.0;
+                    lockDocIds.add(DuplicatePaymentGuard.buildLockDocumentId(
+                            p.sectionId, p.firstName, p.lastName, p.purpose, fee));
+                }
+
+                // 1) Cascade the delete to Firestore atomically so every connected device drops the folder tree
+                boolean remoteDeleted = deleteFolderTreeFromFirestore(
+                        roomId, allSectionIds, payments, expenses, rosterRows, lockDocIds);
+
                 for (PaymentEntity p : payments) {
                     if (p.proofImagePath != null) {
                         File f = new File(p.proofImagePath);
@@ -1376,7 +1403,9 @@ public class PaymentRepository {
                             f.delete();
                         }
                     }
-                    FirebaseSyncManager.queueRemoteDeletion(appContext, target.roomId, "payments", p.receiptId);
+                    if (!remoteDeleted) {
+                        FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "payments", p.receiptId);
+                    }
                 }
                 for (ExpenseEntity ex : expenses) {
                     if (ex.proofImagePath != null) {
@@ -1386,12 +1415,23 @@ public class PaymentRepository {
                             f.delete();
                         }
                     }
-                    FirebaseSyncManager.queueRemoteDeletion(appContext, target.roomId, "expenses", "EXP-" + ex.id);
+                    if (!remoteDeleted) {
+                        FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "expenses", "EXP-" + ex.id);
+                    }
                 }
-                for (Long secId : allSectionIds) {
-                    FirebaseSyncManager.queueRemoteDeletion(appContext, target.roomId, "sections", "SEC-" + secId);
+                if (!remoteDeleted) {
+                    for (RosterStudentEntity r : rosterRows) {
+                        FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "roster_students", "ROSTER-" + r.id);
+                    }
+                    for (String lockId : lockDocIds) {
+                        FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "payment_locks", lockId);
+                    }
+                    for (Long secId : allSectionIds) {
+                        FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "sections", "SEC-" + secId);
+                    }
                 }
 
+                // 2) Delete the same rows locally and record one FOLDER_DELETED audit entry
                 database.runInTransaction(() -> {
                     paymentDao.deletePaymentsBySectionIds(allSectionIds);
                     expenseDao.deleteExpensesBySectionIds(allSectionIds);
@@ -1425,6 +1465,83 @@ public class PaymentRepository {
                 postError(callback, "Failed to delete folder: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Atomically deletes a folder tree from Firestore using WriteBatch commits: the section docs, payments,
+     * expenses, roster students and the related payment_locks, in both rooms/{roomId}/... and the top-level
+     * mirror collections. Returns true only when every batch was committed; false means the caller should
+     * fall back to the offline deletion queue.
+     */
+    private boolean deleteFolderTreeFromFirestore(
+            String roomId,
+            List<Long> sectionIds,
+            List<PaymentEntity> payments,
+            List<ExpenseEntity> expenses,
+            List<RosterStudentEntity> rosterRows,
+            Set<String> lockDocIds
+    ) {
+        if (roomId == null || roomId.isEmpty()
+                || !FirebaseSyncManager.isFirebaseConfigured(appContext)
+                || !FirebaseSyncManager.isNetworkConnected(appContext)) {
+            return false;
+        }
+        try {
+            FirebaseFirestore firestore = FirebaseFirestore.getInstance();
+            DocumentReference roomRef = firestore.collection("rooms").document(roomId);
+            Map<String, DocumentReference> refs = new HashMap<>();
+
+            for (Long secId : sectionIds) {
+                addDeleteRef(refs, roomRef.collection("sections").document("SEC-" + secId));
+                addDeleteRef(refs, firestore.collection("sections").document("SEC-" + secId));
+            }
+            for (PaymentEntity p : payments) {
+                addDeleteRef(refs, roomRef.collection("payments").document(p.receiptId));
+                addDeleteRef(refs, firestore.collection("payments").document(p.receiptId));
+            }
+            for (ExpenseEntity ex : expenses) {
+                addDeleteRef(refs, roomRef.collection("expenses").document("EXP-" + ex.id));
+                addDeleteRef(refs, firestore.collection("expenses").document("EXP-" + ex.id));
+            }
+            for (RosterStudentEntity r : rosterRows) {
+                addDeleteRef(refs, roomRef.collection("roster_students").document("ROSTER-" + r.id));
+                addDeleteRef(refs, firestore.collection("roster_students").document("ROSTER-" + r.id));
+            }
+            for (String lockId : lockDocIds) {
+                addDeleteRef(refs, roomRef.collection("payment_locks").document(lockId));
+            }
+            // Also release any payment_locks that reference these sections
+            for (Long secId : sectionIds) {
+                QuerySnapshot lockSnap = Tasks.await(
+                        roomRef.collection("payment_locks").whereEqualTo("sectionId", secId).get(),
+                        20,
+                        TimeUnit.SECONDS
+                );
+                if (lockSnap != null) {
+                    for (DocumentSnapshot lockDoc : lockSnap.getDocuments()) {
+                        addDeleteRef(refs, lockDoc.getReference());
+                    }
+                }
+            }
+
+            List<DocumentReference> ordered = new ArrayList<>(refs.values());
+            final int batchLimit = 400;
+            for (int start = 0; start < ordered.size(); start += batchLimit) {
+                WriteBatch batch = firestore.batch();
+                int end = Math.min(ordered.size(), start + batchLimit);
+                for (int i = start; i < end; i++) {
+                    batch.delete(ordered.get(i));
+                }
+                Tasks.await(batch.commit(), 30, TimeUnit.SECONDS);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    private static void addDeleteRef(Map<String, DocumentReference> refs, DocumentReference ref) {
+        refs.put(ref.getPath(), ref);
     }
 
     private void collectDescendantSectionIds(long currentSectionId, List<Long> accumulator) {
@@ -1737,8 +1854,8 @@ public class PaymentRepository {
     public void voidPayment(String receiptId, String voidReason, ResultCallback<PaymentEntity> callback) {
         AppDatabase.DB_EXECUTOR.execute(() -> {
             try {
-                if (!sessionManager.canVoidOrDeleteOrManageMembers()) {
-                    postError(callback, "Only the Room OWNER can void payment receipts.");
+                if (!sessionManager.canVoidOrEditRecords()) {
+                    postError(callback, "Auditors have read-only access and cannot void payment receipts.");
                     return;
                 }
                 String cleanReason = voidReason != null ? voidReason.trim() : "";
@@ -1860,8 +1977,8 @@ public class PaymentRepository {
     public void voidExpense(long expenseId, String voidReason, ResultCallback<ExpenseEntity> callback) {
         AppDatabase.DB_EXECUTOR.execute(() -> {
             try {
-                if (!sessionManager.canVoidOrDeleteOrManageMembers()) {
-                    postError(callback, "Only the Room OWNER can void expense deductions.");
+                if (!sessionManager.canVoidOrEditRecords()) {
+                    postError(callback, "Auditors have read-only access and cannot void expense deductions.");
                     return;
                 }
                 String cleanReason = voidReason != null ? voidReason.trim() : "";
@@ -1938,6 +2055,253 @@ public class PaymentRepository {
                 );
                 FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
             } catch (Exception ignored) {
+            }
+        });
+    }
+
+    /**
+     * Full Receipt Editing with automatic balance recalculation, QR HMAC signature regeneration,
+     * duplicate lock update, diff audit logging, and cloud sync.
+     */
+    public void updateReceipt(
+            String receiptId,
+            String newFirstName,
+            String newLastName,
+            String newStudentNumber,
+            double newAmount,
+            String newPaymentMethod,
+            String newGcashRef,
+            String newPurpose,
+            String newProofImagePath,
+            ResultCallback<PaymentEntity> callback
+    ) {
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            try {
+                if (!sessionManager.canVoidOrEditRecords()) {
+                    postError(callback, "Auditors have read-only access and cannot edit receipts.");
+                    return;
+                }
+
+                PaymentEntity existing = paymentDao.findByReceiptIdSync(receiptId);
+                if (existing == null) {
+                    postError(callback, "Receipt not found.");
+                    return;
+                }
+                if (existing.isVoided()) {
+                    postError(callback, "Voided receipts cannot be edited.");
+                    return;
+                }
+
+                String cleanFirst = newFirstName != null ? newFirstName.trim() : "";
+                String cleanLast = newLastName != null ? newLastName.trim() : "";
+                if (cleanFirst.isEmpty() || cleanLast.isEmpty()) {
+                    postError(callback, "Student first and last name are required.");
+                    return;
+                }
+                if (newAmount <= 0.0) {
+                    postError(callback, "Amount must be greater than ₱0.00.");
+                    return;
+                }
+
+                String cleanStudentNo = (newStudentNumber != null && !newStudentNumber.trim().isEmpty())
+                        ? newStudentNumber.trim()
+                        : null;
+                String cleanPurpose = (newPurpose != null && !newPurpose.trim().isEmpty())
+                        ? newPurpose.trim()
+                        : existing.purpose;
+                String cleanMethod = (newPaymentMethod != null && !newPaymentMethod.trim().isEmpty())
+                        ? newPaymentMethod.trim().toUpperCase(Locale.US)
+                        : existing.paymentMethod;
+                String cleanRef = (newGcashRef != null && !newGcashRef.trim().isEmpty())
+                        ? newGcashRef.trim()
+                        : null;
+
+                SectionEntity section = sectionDao.findByIdSync(existing.sectionId);
+                double targetFee = section != null ? section.targetFeeAmount : 0.0;
+
+                // Check duplicate collisions if identity changed
+                String newIdentityKey = DuplicatePaymentGuard.buildStudentIdentityKey(
+                        existing.sectionId,
+                        cleanFirst,
+                        cleanLast,
+                        cleanPurpose,
+                        targetFee
+                );
+
+                String oldIdentityKey = existing.studentIdentityKey != null
+                        ? existing.studentIdentityKey
+                        : DuplicatePaymentGuard.buildStudentIdentityKey(
+                                existing.sectionId,
+                                existing.firstName,
+                                existing.lastName,
+                                existing.purpose,
+                                targetFee
+                        );
+
+                if (!newIdentityKey.equals(oldIdentityKey)) {
+                    List<PaymentEntity> duplicates = paymentDao.findActiveDuplicatesForStudentSync(
+                            existing.sectionId,
+                            newIdentityKey,
+                            cleanStudentNo != null ? cleanStudentNo : "",
+                            DuplicatePaymentGuard.normalizeText(cleanFirst),
+                            DuplicatePaymentGuard.normalizeText(cleanLast)
+                    );
+                    for (PaymentEntity d : duplicates) {
+                        if (!d.receiptId.equals(receiptId) && !d.isVoided()) {
+                            postError(callback, "Cannot update: Another active receipt (" + d.receiptId
+                                    + ") already exists for " + cleanFirst + " " + cleanLast + " in this folder.");
+                            return;
+                        }
+                    }
+                }
+
+                // Balance recalculation
+                double remainingBalance = 0.0;
+                String paymentStatus = PaymentEntity.STATUS_PAID;
+                if (targetFee > 0.005 && newAmount < targetFee - 0.005) {
+                    remainingBalance = targetFee - newAmount;
+                    paymentStatus = PaymentEntity.STATUS_PARTIAL;
+                }
+
+                // Regenerate Cryptographic QR HMAC-SHA256 signature
+                String activeRoomSecret = sessionManager.getActiveRoomSigningSecret();
+                String secretToUse = (activeRoomSecret != null && activeRoomSecret.length() >= 32)
+                        ? activeRoomSecret
+                        : SecuritySignatureHelper.getOrCreateSecretKey(appContext);
+
+                String newQrSig = SecuritySignatureHelper.computeReceiptSignatureWithSecret(
+                        secretToUse,
+                        receiptId,
+                        existing.sectionId,
+                        cleanFirst,
+                        cleanLast,
+                        newAmount,
+                        existing.createdAt
+                );
+                String newQrPayload = SecuritySignatureHelper.buildQrPayload(receiptId, newQrSig);
+
+                // Proof image handling
+                String finalProofPath = newProofImagePath != null ? newProofImagePath : existing.proofImagePath;
+                String finalProofUrl = existing.proofImageUrl;
+                String imageSyncStatus = existing.imageSyncStatus != null ? existing.imageSyncStatus : PaymentEntity.IMAGE_STATUS_NONE;
+                if (newProofImagePath != null && !newProofImagePath.equals(existing.proofImagePath)) {
+                    imageSyncStatus = PaymentEntity.IMAGE_STATUS_PENDING_UPLOAD;
+                    finalProofUrl = null;
+                }
+
+                long now = System.currentTimeMillis();
+                String editorName = sessionManager.getCurrentUserName();
+
+                // Compute audit diff
+                List<String> diffs = new ArrayList<>();
+                if (!cleanFirst.equals(existing.firstName) || !cleanLast.equals(existing.lastName)) {
+                    diffs.add("Name: " + existing.getFullName() + " -> " + cleanFirst + " " + cleanLast);
+                }
+                if (Math.abs(newAmount - existing.amount) > 0.005) {
+                    diffs.add("Amount: " + CurrencyFormatter.formatPhp(existing.amount) + " -> " + CurrencyFormatter.formatPhp(newAmount));
+                }
+                if (!cleanMethod.equals(existing.paymentMethod)) {
+                    diffs.add("Mode: " + existing.paymentMethod + " -> " + cleanMethod);
+                }
+                if (!cleanPurpose.equals(existing.purpose)) {
+                    diffs.add("Purpose: " + existing.purpose + " -> " + cleanPurpose);
+                }
+                if (cleanStudentNo != null && !cleanStudentNo.equals(existing.studentNumber)) {
+                    diffs.add("Student No: " + (existing.studentNumber != null ? existing.studentNumber : "none") + " -> " + cleanStudentNo);
+                }
+                if (diffs.isEmpty()) {
+                    diffs.add("Proof photo / metadata updated");
+                }
+                String diffSummary = "Edited Receipt " + receiptId + ": " + String.join(", ", diffs);
+
+                // Update duplicate locks in Firestore if identity changed
+                String targetRoomId = existing.roomId != null ? existing.roomId : sessionManager.getActiveRoomId();
+                if (targetRoomId != null && !targetRoomId.isEmpty()
+                        && !newIdentityKey.equals(oldIdentityKey)
+                        && FirebaseSyncManager.isFirebaseConfigured(appContext)
+                        && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                    try {
+                        DuplicatePaymentGuard.releaseRemotePaymentLock(appContext, targetRoomId, existing, targetFee);
+                        PaymentEntity dummyForLock = new PaymentEntity(
+                                receiptId,
+                                existing.sectionId,
+                                existing.sectionName,
+                                cleanFirst,
+                                cleanLast,
+                                cleanStudentNo,
+                                cleanPurpose,
+                                newAmount,
+                                cleanMethod,
+                                cleanRef,
+                                finalProofPath,
+                                finalProofUrl,
+                                PaymentEntity.STATUS_PAID,
+                                paymentStatus,
+                                remainingBalance,
+                                null,
+                                existing.createdAt,
+                                null,
+                                newQrSig,
+                                newQrPayload,
+                                PaymentEntity.SYNC_PENDING,
+                                now,
+                                targetRoomId,
+                                existing.actorUserId,
+                                existing.actorName,
+                                existing.actorRole,
+                                newIdentityKey,
+                                existing.duplicateOverrideReason
+                        );
+                        DuplicatePaymentGuard.acquireRemotePaymentLockAndCommit(
+                                appContext,
+                                targetRoomId,
+                                dummyForLock,
+                                targetFee,
+                                false
+                        );
+                    } catch (Exception ignoredLockErr) {
+                    }
+                }
+
+                // Update Room SQLite
+                paymentDao.updateReceiptFull(
+                        receiptId,
+                        cleanFirst,
+                        cleanLast,
+                        cleanStudentNo,
+                        newAmount,
+                        cleanMethod,
+                        cleanRef,
+                        cleanPurpose,
+                        finalProofPath,
+                        finalProofUrl,
+                        imageSyncStatus,
+                        remainingBalance,
+                        paymentStatus,
+                        PaymentEntity.STATUS_PAID,
+                        newIdentityKey,
+                        newQrSig,
+                        newQrPayload,
+                        editorName,
+                        now,
+                        now
+                );
+
+                // Insert immutable audit log
+                insertAttributedAuditLogSync(
+                        AuditLogEntity.ACTION_RECEIPT_EDITED,
+                        existing.sectionId,
+                        existing.sectionName,
+                        receiptId,
+                        diffSummary,
+                        now
+                );
+
+                PaymentEntity updated = paymentDao.findByReceiptIdSync(receiptId);
+                FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
+                postSuccess(callback, updated);
+            } catch (Exception e) {
+                postError(callback, "Failed to update receipt: " + e.getMessage());
             }
         });
     }

@@ -90,6 +90,45 @@ public interface PaymentDao {
     @Query("DELETE FROM payments WHERE room_id = :roomId")
     void deletePaymentsByRoomId(String roomId);
 
+    @Query("DELETE FROM payments WHERE receipt_id = :receiptId")
+    void deletePaymentByReceiptId(String receiptId);
+
+    @Query("SELECT * FROM payments WHERE room_id = :roomId AND sync_status = 'SYNCED'")
+    List<PaymentEntity> getSyncedPaymentsByRoomSync(String roomId);
+
+    @Query("UPDATE payments SET proof_image_url = :proofImageUrl, image_sync_status = :imageSyncStatus, updated_at = :updatedAt WHERE id = :id")
+    void updateProofImageUrl(long id, String proofImageUrl, String imageSyncStatus, long updatedAt);
+
+    @Query("UPDATE payments SET first_name = :firstName, last_name = :lastName, student_number = :studentNumber, " +
+            "amount = :amount, payment_method = :paymentMethod, gcash_reference_no = :gcashReferenceNo, " +
+            "purpose = :purpose, proof_image_path = :proofImagePath, proof_image_url = :proofImageUrl, " +
+            "image_sync_status = :imageSyncStatus, remaining_balance = :remainingBalance, payment_status = :paymentStatus, " +
+            "status = :status, student_identity_key = :studentIdentityKey, qr_signature = :qrSignature, " +
+            "qr_payload = :qrPayload, last_edited_by_name = :lastEditedByName, last_edited_at = :lastEditedAt, " +
+            "sync_status = 'PENDING', updated_at = :updatedAt WHERE receipt_id = :receiptId")
+    int updateReceiptFull(
+            String receiptId,
+            String firstName,
+            String lastName,
+            String studentNumber,
+            double amount,
+            String paymentMethod,
+            String gcashReferenceNo,
+            String purpose,
+            String proofImagePath,
+            String proofImageUrl,
+            String imageSyncStatus,
+            double remainingBalance,
+            String paymentStatus,
+            String status,
+            String studentIdentityKey,
+            String qrSignature,
+            String qrPayload,
+            String lastEditedByName,
+            long lastEditedAt,
+            long updatedAt
+    );
+
     @Query("SELECT COUNT(*) FROM payments WHERE sync_status = 'PENDING'")
     LiveData<Integer> observePendingCount();
 }

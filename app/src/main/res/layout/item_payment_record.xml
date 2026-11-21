@@ -8,9 +8,9 @@
     android:clickable="true"
     android:focusable="true"
     app:cardBackgroundColor="@color/card_surface"
-    app:cardCornerRadius="12dp"
+    app:cardCornerRadius="14dp"
     app:cardElevation="1dp"
-    app:strokeColor="@color/divider_color"
+    app:strokeColor="@color/card_stroke"
     app:strokeWidth="1dp">
 
     <LinearLayout
@@ -27,13 +27,14 @@
 
             <ImageView
                 android:id="@+id/ivPaymentIcon"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@color/primary_container"
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/surface_variant"
                 android:contentDescription="Payment Method"
-                android:padding="7dp"
+                android:padding="8dp"
                 android:src="@drawable/ic_payments"
-                app:tint="@color/primary" />
+                app:tint="@color/brand_primary" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -48,17 +49,17 @@
                     android:layout_height="wrap_content"
                     android:text="Juan Dela Cruz"
                     android:textColor="@color/text_primary"
-                    android:textSize="16sp"
+                    android:textSize="15sp"
                     android:textStyle="bold" />
 
                 <TextView
                     android:id="@+id/tvPaymentPurpose"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="1dp"
+                    android:layout_marginTop="2dp"
                     android:text="Event T-Shirt"
                     android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout
@@ -71,8 +72,9 @@
                     android:id="@+id/tvPaymentAmount"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:fontFeatureSettings="tnum"
                     android:text="₱350.00"
-                    android:textColor="@color/primary"
+                    android:textColor="@color/brand_primary"
                     android:textSize="16sp"
                     android:textStyle="bold" />
 
@@ -81,7 +83,8 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="3dp"
-                    android:background="@color/status_paid_bg"
+                    android:background="@drawable/bg_badge_pill"
+                    android:backgroundTint="@color/status_paid_bg"
                     android:paddingHorizontal="8dp"
                     android:paddingVertical="2dp"
                     android:text="PAID"
@@ -107,11 +110,12 @@
                 android:id="@+id/tvPaymentMethodBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@color/primary_container"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/surface_variant"
                 android:paddingHorizontal="8dp"
                 android:paddingVertical="2dp"
                 android:text="CASH"
-                android:textColor="@color/on_primary_container"
+                android:textColor="@color/text_primary"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
@@ -122,6 +126,8 @@
                 android:layout_marginStart="8dp"
                 android:layout_weight="1"
                 android:ellipsize="end"
+                android:fontFamily="monospace"
+                android:fontFeatureSettings="tnum"
                 android:maxLines="1"
                 android:text="RCP-20261120-8F3A9C"
                 android:textColor="@color/text_secondary"
@@ -131,6 +137,7 @@
                 android:id="@+id/tvPaymentDate"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
+                android:fontFeatureSettings="tnum"
                 android:text="Nov 20, 2026"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
@@ -141,7 +148,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:background="@color/status_void_bg"
+            android:background="@drawable/bg_badge_pill"
+            android:backgroundTint="@color/status_void_bg"
             android:paddingHorizontal="10dp"
             android:paddingVertical="6dp"
             android:text="Void Reason: Duplicate entry"

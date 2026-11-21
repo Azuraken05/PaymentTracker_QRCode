@@ -22,6 +22,7 @@ import androidx.core.view.WindowInsetsCompat;
 import androidx.lifecycle.LiveData;
 import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
+import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
 
 import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
@@ -31,6 +32,7 @@ import com.example.qr_paymentscan_cash_n_online.data.SectionSummary;
 import com.example.qr_paymentscan_cash_n_online.sync.FirebaseSyncManager;
 import com.example.qr_paymentscan_cash_n_online.sync.FirestoreRealtimeSyncManager;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.ui.ReceiptVerifierBottomSheet;
 import com.example.qr_paymentscan_cash_n_online.ui.SectionAdapter;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
@@ -64,6 +66,9 @@ public class MainActivity extends BaseThemedActivity {
     private LiveData<com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity> currentMemberLiveData;
     private String observedRoomId = null;
     private String observedMemberRoomId = null;
+    private String lastRoomEntrySyncId = null;
+    private SwipeRefreshLayout swipeRefreshSections;
+    private LoadingOverlayController loadingOverlay;
 
     // Live Camera QR Scanner Launcher
     private final ActivityResultLauncher<ScanOptions> qrCameraScanLauncher =
@@ -110,6 +115,20 @@ public class MainActivity extends BaseThemedActivity {
             return insets;
         });
 
+        // Check Biometric / PIN App Lock if enabled
+        com.example.qr_paymentscan_cash_n_online.util.AppLockManager.getInstance(this)
+                .promptIfLocked(this, new com.example.qr_paymentscan_cash_n_online.util.AppLockManager.AuthCallback() {
+                    @Override
+                    public void onSuccess() {
+                        // App unlocked
+                    }
+
+                    @Override
+                    public void onFailure(String errorMessage) {
+                        finish();
+                    }
+                });
+
         // Preserve existing HMAC-SHA256 secret key so all prior QR receipts remain authentic
         SecuritySignatureHelper.getOrCreateSecretKey(this);
         sessionManager = UserSessionManager.getInstance(this);
@@ -122,6 +141,10 @@ public class MainActivity extends BaseThemedActivity {
         ImageButton btnUserProfileMain = findViewById(R.id.btnUserProfileMain);
         layoutEmptySections = findViewById(R.id.layoutEmptySections);
         RecyclerView rvSections = findViewById(R.id.rvSections);
+        swipeRefreshSections = findViewById(R.id.swipeRefreshSections);
+        loadingOverlay = new LoadingOverlayController(this);
+        swipeRefreshSections.setColorSchemeResources(R.color.primary);
+        swipeRefreshSections.setOnRefreshListener(this::handlePullToRefresh);
 
         sectionAdapter = new SectionAdapter(
                 section -> {
@@ -148,7 +171,7 @@ public class MainActivity extends BaseThemedActivity {
         btnRoomMembersMain.setOnClickListener(v ->
                 startActivity(new Intent(MainActivity.this, RoomMembersActivity.class)));
         btnUserProfileMain.setOnClickListener(v ->
-                startActivity(new Intent(MainActivity.this, AuthActivity.class)));
+                startActivity(new Intent(MainActivity.this, ProfileActivity.class)));
 
         btnVerifyQrMain.setOnClickListener(v -> showQrScanModeChooserDialog());
         btnOpenAuditLogMain.setOnClickListener(v -> {
@@ -203,6 +226,14 @@ public class MainActivity extends BaseThemedActivity {
         sectionAdapter.notifyDataSetChanged();
     }
 
+    @Override
+    protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
+        super.onDestroy();
+    }
+
     private void refreshRoomAndRoleUi() {
         String roomName = sessionManager.getActiveRoomName();
         String role = sessionManager.getActiveRoomRole();
@@ -254,6 +285,7 @@ public class MainActivity extends BaseThemedActivity {
         }
         observedRoomId = activeRoomId;
         currentRootSectionsLiveData = repository.observeRootSectionSummaries();
+        triggerRoomEntrySyncIfNeeded(activeRoomId);
         currentRootSectionsLiveData.observe(this, sections -> {
             if (sessionManager.isPendingApproval()) {
                 sectionAdapter.submitList(Collections.emptyList());
@@ -273,6 +305,37 @@ public class MainActivity extends BaseThemedActivity {
         float screenWidthDp = dm.widthPixels / dm.density;
         int cols = (int) (screenWidthDp / 340f);
         return Math.max(1, Math.min(3, cols));
+    }
+
+    /** First time a room becomes active on this screen, pull the latest cloud state behind the overlay. */
+    private void triggerRoomEntrySyncIfNeeded(String activeRoomId) {
+        if (activeRoomId == null || activeRoomId.isEmpty() || activeRoomId.equals(lastRoomEntrySyncId)) {
+            return;
+        }
+        if (!FirebaseSyncManager.isFirebaseConfigured(this) || !FirebaseSyncManager.isNetworkConnected(this)) {
+            return;
+        }
+        lastRoomEntrySyncId = activeRoomId;
+        loadingOverlay.show("Syncing Workspace...", "Updating across all connected devices");
+        FirebaseSyncManager.runForegroundSync(this, success -> loadingOverlay.hide());
+    }
+
+    private void handlePullToRefresh() {
+        if (!FirebaseSyncManager.isFirebaseConfigured(this)) {
+            swipeRefreshSections.setRefreshing(false);
+            Snackbar.make(rootView, "Local mode: Firebase is not configured, nothing to refresh.", Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        if (!FirebaseSyncManager.isNetworkConnected(this)) {
+            swipeRefreshSections.setRefreshing(false);
+            Snackbar.make(rootView, "Offline: waiting for internet to refresh from the cloud.", Snackbar.LENGTH_SHORT).show();
+            return;
+        }
+        FirebaseSyncManager.runForegroundSync(this, success -> {
+            if (swipeRefreshSections != null) {
+                swipeRefreshSections.setRefreshing(false);
+            }
+        });
     }
 
     private void observeSyncStatus() {
@@ -319,7 +382,8 @@ public class MainActivity extends BaseThemedActivity {
             return;
         }
         Snackbar.make(rootView, "Syncing local records to Firebase Cloud...", Snackbar.LENGTH_SHORT).show();
-        FirebaseSyncManager.enqueueImmediateSyncIfAvailable(this);
+        loadingOverlay.show("Syncing Workspace...", "Updating across all connected devices");
+        FirebaseSyncManager.runForegroundSync(this, success -> loadingOverlay.hide());
     }
 
     private void showCreateSectionDialog() {
@@ -349,15 +413,18 @@ public class MainActivity extends BaseThemedActivity {
                 }
                 tilName.setError(null);
 
+                loadingOverlay.show("Creating Folder...", "Updating across all connected devices");
                 repository.createSection(name, desc, null, new PaymentRepository.ResultCallback<SectionEntity>() {
                     @Override
                     public void onSuccess(SectionEntity result) {
+                        loadingOverlay.hide();
                         dialog.dismiss();
                         Snackbar.make(rootView, "Created section folder: " + result.sectionName, Snackbar.LENGTH_SHORT).show();
                     }
 
                     @Override
                     public void onError(String message) {
+                        loadingOverlay.hide();
                         tilName.setError(message);
                     }
                 });
@@ -391,14 +458,17 @@ public class MainActivity extends BaseThemedActivity {
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Save Name", (d, w) -> {
                     String newName = etNewName.getText().toString().trim();
+                    loadingOverlay.show("Renaming Folder...", "Updating across all connected devices");
                     repository.renameSection(section.id, newName, new PaymentRepository.ResultCallback<SectionEntity>() {
                         @Override
                         public void onSuccess(SectionEntity result) {
+                            loadingOverlay.hide();
                             Snackbar.make(rootView, "Renamed folder to \"" + result.sectionName + "\"", Snackbar.LENGTH_SHORT).show();
                         }
 
                         @Override
                         public void onError(String message) {
+                            loadingOverlay.hide();
                             Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                         }
                     });
@@ -437,9 +507,11 @@ public class MainActivity extends BaseThemedActivity {
     }
 
     private void executeFolderDeletion(long sectionId) {
+        loadingOverlay.show("Deleting Folder...", "Updating across all connected devices");
         repository.deleteFolderCascade(sectionId, new PaymentRepository.ResultCallback<PaymentRepository.FolderDeleteSummary>() {
             @Override
             public void onSuccess(PaymentRepository.FolderDeleteSummary result) {
+                loadingOverlay.hide();
                 Snackbar.make(
                         rootView,
                         "Deleted folder \"" + result.folderName + "\" and logged in Audit Trail.",
@@ -449,6 +521,7 @@ public class MainActivity extends BaseThemedActivity {
 
             @Override
             public void onError(String message) {
+                loadingOverlay.hide();
                 Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
             }
         });

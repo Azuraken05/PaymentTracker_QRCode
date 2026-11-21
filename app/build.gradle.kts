@@ -46,6 +46,7 @@ dependencies {
     implementation(libs.activity)
     implementation(libs.constraintlayout)
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
 
     // Room Local SQLite Database
     implementation("androidx.room:room-runtime:2.6.1")
@@ -74,6 +75,12 @@ dependencies {
 
     // Glide for Local Proof Image Loading
     implementation("com.github.bumptech.glide:glide:4.16.0")
+
+    // OkHttp for Cloudinary Image Upload
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+
+    // Biometric & Device PIN App Lock
+    implementation("androidx.biometric:biometric:1.1.0")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.ext.junit)

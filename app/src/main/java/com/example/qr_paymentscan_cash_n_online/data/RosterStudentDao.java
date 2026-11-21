@@ -30,4 +30,13 @@ public interface RosterStudentDao {
 
     @Query("DELETE FROM roster_students WHERE room_id = :roomId")
     void deleteRosterByRoomId(String roomId);
+
+    @Query("DELETE FROM roster_students WHERE id = :studentId")
+    void deleteRosterStudentById(long studentId);
+
+    @Query("SELECT * FROM roster_students WHERE id = :studentId LIMIT 1")
+    RosterStudentEntity findByIdSync(long studentId);
+
+    @Query("SELECT * FROM roster_students WHERE room_id = :roomId AND sync_status = 'SYNCED'")
+    List<RosterStudentEntity> getSyncedRosterByRoomSync(String roomId);
 }

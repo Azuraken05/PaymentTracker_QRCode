@@ -5,9 +5,9 @@
     android:layout_height="wrap_content"
     android:layout_marginVertical="4dp"
     app:cardBackgroundColor="@color/card_surface"
-    app:cardCornerRadius="12dp"
+    app:cardCornerRadius="14dp"
     app:cardElevation="1dp"
-    app:strokeColor="@color/divider_color"
+    app:strokeColor="@color/card_stroke"
     app:strokeWidth="1dp">
 
     <LinearLayout
@@ -19,13 +19,14 @@
 
         <ImageView
             android:id="@+id/ivAuditActionIcon"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
-            android:background="@color/primary_container"
+            android:layout_width="38dp"
+            android:layout_height="38dp"
+            android:background="@drawable/bg_badge_pill"
+            android:backgroundTint="@color/surface_variant"
             android:contentDescription="Audit Event"
-            android:padding="7dp"
+            android:padding="8dp"
             android:src="@drawable/ic_history"
-            app:tint="@color/primary" />
+            app:tint="@color/brand_primary" />
 
         <LinearLayout
             android:layout_width="0dp"
@@ -44,11 +45,12 @@
                     android:id="@+id/tvAuditActionBadge"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:background="@color/primary_container"
+                    android:background="@drawable/bg_badge_pill"
+                    android:backgroundTint="@color/surface_variant"
                     android:paddingHorizontal="8dp"
-                    android:paddingVertical="2dp"
+                    android:paddingVertical="3dp"
                     android:text="PAYMENT_RECORDED"
-                    android:textColor="@color/on_primary_container"
+                    android:textColor="@color/text_primary"
                     android:textSize="11sp"
                     android:textStyle="bold" />
 
@@ -57,6 +59,7 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
+                    android:fontFeatureSettings="tnum"
                     android:gravity="end"
                     android:text="Nov 20, 2026 • 02:30 PM"
                     android:textColor="@color/text_secondary"
@@ -68,6 +71,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="6dp"
+                android:fontFeatureSettings="tnum"
                 android:text="Recorded ₱350.00 from Juan Dela Cruz"
                 android:textColor="@color/text_primary"
                 android:textSize="13sp" />
@@ -78,7 +82,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
                 android:text="By Class Treasurer (OWNER)"
-                android:textColor="@color/primary"
+                android:textColor="@color/brand_primary"
                 android:textSize="11sp"
                 android:textStyle="bold" />
 
@@ -87,6 +91,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
+                android:fontFeatureSettings="tnum"
                 android:text="Section: BSCS 3A • Receipt: RCP-20261120"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp" />

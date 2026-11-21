@@ -95,9 +95,8 @@ service cloud.firestore {
       match /payments/{receiptId} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create: if canWriteRecords(roomId);
-        // Collectors can apply partial payment installments; only OWNER can void or delete receipts
-        allow update: if isRoomOwner(roomId)
-            || (canWriteRecords(roomId) && request.resource.data.status != 'VOIDED');
+        // Active Owners and Collectors can update receipts (including voids and edits)
+        allow update: if canWriteRecords(roomId);
         allow delete: if isRoomOwner(roomId);
       }
 
@@ -105,16 +104,15 @@ service cloud.firestore {
       match /payment_locks/{lockKey} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create, update: if canWriteRecords(roomId);
-        // Only OWNER can release/delete a student payment lock when voiding a payment
-        allow delete: if isRoomOwner(roomId);
+        // Owners and Collectors can release/delete a lock when voiding or editing a payment
+        allow delete: if canWriteRecords(roomId);
       }
 
       // 1f. Section Expenses
       match /expenses/{expenseId} {
         allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
         allow create: if canWriteRecords(roomId);
-        allow update: if isRoomOwner(roomId)
-            || (canWriteRecords(roomId) && request.resource.data.status != 'VOIDED');
+        allow update: if canWriteRecords(roomId);
         allow delete: if isRoomOwner(roomId);
       }
 
@@ -149,6 +147,17 @@ service cloud.firestore {
     match /audit_logs/{docId} {
       allow read, create: if isSignedIn();
       allow update, delete: if false;
+    }
+
+    // User profile documents
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && request.auth.uid == userId;
+    }
+
+    // Collection Group Query for Joined Rooms Discovery
+    match /{path=**}/members/{memberId} {
+      allow read: if isSignedIn()
+        && (resource.data.userId == request.auth.uid || memberId == request.auth.uid);
     }
   }
 }

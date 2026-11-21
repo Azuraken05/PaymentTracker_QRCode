@@ -45,6 +45,9 @@ public interface RoomMemberDao {
     @Query("UPDATE room_members SET user_name = :newName WHERE user_id = :userId")
     void updateMemberDisplayName(String userId, String newName);
 
+    @Query("SELECT * FROM room_members WHERE user_id = :userId")
+    List<RoomMemberEntity> getMembersByUserSync(String userId);
+
     @Query("DELETE FROM room_members WHERE room_id = :roomId AND user_id = :userId")
     void deleteMember(String roomId, String userId);
 

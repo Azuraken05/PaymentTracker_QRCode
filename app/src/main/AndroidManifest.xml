@@ -41,6 +41,17 @@
             android:windowSoftInputMode="adjustResize" />
 
         <activity
+            android:name=".EmailVerificationActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
+            android:name=".ProfileActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:windowSoftInputMode="adjustResize" />
+
+        <activity
             android:name=".RoomLobbyActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
@@ -71,6 +82,11 @@
         <activity
             android:name=".ReceiptDetailActivity"
             android:exported="false" />
+
+        <activity
+            android:name=".EditReceiptActivity"
+            android:exported="false"
+            android:windowSoftInputMode="adjustResize" />
 
         <activity
             android:name=".AuditLogActivity"

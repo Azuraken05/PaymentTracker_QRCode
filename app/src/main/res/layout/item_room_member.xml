@@ -10,7 +10,7 @@
     app:cardBackgroundColor="@color/white"
     app:cardCornerRadius="14dp"
     app:cardElevation="1dp"
-    app:strokeColor="@color/divider_color"
+    app:strokeColor="@color/card_stroke"
     app:strokeWidth="1dp">
 
     <LinearLayout
@@ -25,12 +25,23 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <ImageView
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:contentDescription="Member"
-                android:src="@drawable/ic_person"
-                app:tint="@color/brand_primary" />
+            <!-- Monogram Avatar -->
+            <FrameLayout
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="@color/surface_variant">
+
+                <TextView
+                    android:id="@+id/tvMemberAvatarInitial"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:text="M"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="17sp"
+                    android:textStyle="bold" />
+            </FrameLayout>
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -53,9 +64,19 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="2dp"
-                    android:text="maria@school.edu"
+                    android:text="maria@school.edu • Joined Nov 21"
                     android:textColor="@color/text_secondary"
                     android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tvMemberDeviceModel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="Samsung SM-A546E"
+                    android:textColor="@color/text_muted"
+                    android:textSize="11sp"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <TextView
@@ -63,13 +84,13 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:background="@drawable/bg_badge_pill"
-                android:backgroundTint="#E8F0FE"
+                android:backgroundTint="@color/surface_variant"
                 android:paddingStart="10dp"
                 android:paddingTop="4dp"
                 android:paddingEnd="10dp"
                 android:paddingBottom="4dp"
                 android:text="OWNER"
-                android:textColor="@color/brand_primary_dark"
+                android:textColor="@color/text_primary"
                 android:textSize="11sp"
                 android:textStyle="bold" />
         </LinearLayout>
@@ -128,7 +149,7 @@
                 android:layout_height="38dp"
                 android:layout_marginStart="4dp"
                 android:layout_weight="0.9"
-                android:backgroundTint="#FEE2E2"
+                android:backgroundTint="@color/status_void_bg"
                 android:insetTop="0dp"
                 android:insetBottom="0dp"
                 android:minWidth="0dp"
@@ -136,7 +157,7 @@
                 android:singleLine="true"
                 android:text="Ban"
                 android:textAllCaps="false"
-                android:textColor="#B91C1C"
+                android:textColor="@color/status_void_red"
                 android:textSize="12sp"
                 app:cornerRadius="8dp" />
         </LinearLayout>

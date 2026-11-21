@@ -22,7 +22,7 @@ import java.util.concurrent.Executors;
                 RosterStudentEntity.class,
                 AuditLogEntity.class
         },
-        version = 4,
+        version = 5,
         exportSchema = false
 )
 public abstract class AppDatabase extends RoomDatabase {
@@ -186,6 +186,26 @@ public abstract class AppDatabase extends RoomDatabase {
         }
     };
 
+    /**
+     * Explicit Non-Destructive Room Migration from version 4 to version 5.
+     * Adds Cloudinary online image storage URLs/sync status, and receipt editing audit metadata
+     * (last_edited_by_name, last_edited_at) while preserving 100% of existing local data.
+     */
+    public static final Migration MIGRATION_4_5 = new Migration(4, 5) {
+        @Override
+        public void migrate(@NonNull SupportSQLiteDatabase db) {
+            // 1. Add Cloudinary image storage and editing tracking columns to payments
+            db.execSQL("ALTER TABLE payments ADD COLUMN proof_image_url TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE payments ADD COLUMN image_sync_status TEXT NOT NULL DEFAULT 'NONE'");
+            db.execSQL("ALTER TABLE payments ADD COLUMN last_edited_by_name TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE payments ADD COLUMN last_edited_at INTEGER NOT NULL DEFAULT 0");
+
+            // 2. Add Cloudinary image storage columns to expenses
+            db.execSQL("ALTER TABLE expenses ADD COLUMN proof_image_url TEXT DEFAULT NULL");
+            db.execSQL("ALTER TABLE expenses ADD COLUMN image_sync_status TEXT NOT NULL DEFAULT 'NONE'");
+        }
+    };
+
     public static AppDatabase getInstance(final Context context) {
         if (INSTANCE == null) {
             synchronized (AppDatabase.class) {
@@ -195,7 +215,7 @@ public abstract class AppDatabase extends RoomDatabase {
                                     AppDatabase.class,
                                     "payment_tracker_db"
                             )
-                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                             .build();
                 }
             }

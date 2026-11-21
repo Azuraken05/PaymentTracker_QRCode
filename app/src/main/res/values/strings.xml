@@ -12,4 +12,7 @@
     <string name="gcash_only_notice">Online Payment Mode: GCash Only (Reference No. &amp; Proof Photo Required)</string>
     <string name="add_expense">Add Expense</string>
     <string name="trademark_credit">This was made by Azuraken_05</string>
+    <string name="loading_default_title">Syncing Workspace...</string>
+    <string name="loading_default_subtitle">Updating across all connected devices</string>
+    <string name="folder_deleted_toast">This folder was deleted</string>
 </resources>

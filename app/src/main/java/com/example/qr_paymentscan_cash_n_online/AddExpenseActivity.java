@@ -24,6 +24,7 @@ import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
 import com.example.qr_paymentscan_cash_n_online.data.ExpenseEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.card.MaterialCardView;
@@ -62,6 +63,7 @@ public class AddExpenseActivity extends BaseThemedActivity {
     private ImageView ivExpenseProofPreview;
     private TextView tvExpenseProofStatus;
     private MaterialButton btnSubmitExpense;
+    private LoadingOverlayController loadingOverlay;
 
     private String savedInternalProofPath = null;
     private Uri pendingCameraCaptureUri = null;
@@ -96,6 +98,7 @@ public class AddExpenseActivity extends BaseThemedActivity {
         setContentView(R.layout.activity_add_expense);
 
         rootView = findViewById(R.id.addExpenseRoot);
+        loadingOverlay = new LoadingOverlayController(this);
         ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
@@ -214,6 +217,7 @@ public class AddExpenseActivity extends BaseThemedActivity {
         }
 
         btnSubmitExpense.setEnabled(false);
+        loadingOverlay.show("Recording Expense...", "Updating across all connected devices");
         repository.recordExpense(
                 sectionId,
                 title,
@@ -224,15 +228,25 @@ public class AddExpenseActivity extends BaseThemedActivity {
                 new PaymentRepository.ResultCallback<ExpenseEntity>() {
                     @Override
                     public void onSuccess(ExpenseEntity result) {
+                        loadingOverlay.hide();
                         finish();
                     }
 
                     @Override
                     public void onError(String message) {
+                        loadingOverlay.hide();
                         btnSubmitExpense.setEnabled(true);
                         Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                     }
                 }
         );
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
+        super.onDestroy();
     }
 }

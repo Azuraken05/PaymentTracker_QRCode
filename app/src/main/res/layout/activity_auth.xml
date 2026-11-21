@@ -232,6 +232,12 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
                     android:hint="Password (min 6 characters)"
+                    app:boxCornerRadiusBottomEnd="12dp"
+                    app:boxCornerRadiusBottomStart="12dp"
+                    app:boxCornerRadiusTopEnd="12dp"
+                    app:boxCornerRadiusTopStart="12dp"
+                    app:endIconContentDescription="Toggle password visibility"
+                    app:endIconDrawable="@drawable/ic_visibility"
                     app:endIconMode="password_toggle"
                     app:startIconDrawable="@drawable/ic_lock">
 
@@ -243,11 +249,24 @@
                         android:maxLines="1" />
                 </com.google.android.material.textfield.TextInputLayout>
 
+                <TextView
+                    android:id="@+id/btnForgotPassword"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="end"
+                    android:layout_marginTop="8dp"
+                    android:background="?attr/selectableItemBackground"
+                    android:padding="4dp"
+                    android:text="Forgot Password?"
+                    android:textColor="@color/brand_primary"
+                    android:textSize="12sp"
+                    android:textStyle="bold" />
+
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/btnSubmitAuth"
                     android:layout_width="match_parent"
                     android:layout_height="52dp"
-                    android:layout_marginTop="18dp"
+                    android:layout_marginTop="14dp"
                     android:backgroundTint="@color/brand_primary"
                     android:text="Sign In to Account"
                     android:textAllCaps="false"

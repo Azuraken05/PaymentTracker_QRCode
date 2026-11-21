@@ -49,4 +49,13 @@ public interface AuditLogDao {
 
     @Query("DELETE FROM audit_logs WHERE room_id = :roomId")
     void deleteLogsByRoomId(String roomId);
+
+    @Query("DELETE FROM audit_logs WHERE id = :logId")
+    void deleteLogById(long logId);
+
+    @Query("SELECT * FROM audit_logs WHERE timestamp = :timestamp AND action_type = :actionType LIMIT 1")
+    AuditLogEntity findByTimestampAndActionSync(long timestamp, String actionType);
+
+    @Query("SELECT * FROM audit_logs WHERE room_id = :roomId AND sync_status = 'SYNCED'")
+    List<AuditLogEntity> getSyncedLogsByRoomSync(String roomId);
 }

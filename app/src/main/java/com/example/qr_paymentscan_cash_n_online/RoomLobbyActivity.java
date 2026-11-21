@@ -31,6 +31,7 @@ import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
 import com.example.qr_paymentscan_cash_n_online.sync.FirebaseSyncManager;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.util.RoomSecurityHelper;
 import com.example.qr_paymentscan_cash_n_online.util.SecuritySignatureHelper;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
@@ -52,7 +53,16 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
+import androidx.activity.result.ActivityResultLauncher;
+import com.google.android.material.progressindicator.LinearProgressIndicator;
+import com.google.android.material.textfield.TextInputEditText;
+import com.google.android.material.textfield.TextInputLayout;
+import com.journeyapps.barcodescanner.ScanContract;
+import com.journeyapps.barcodescanner.ScanOptions;
+
 public class RoomLobbyActivity extends BaseThemedActivity {
+
+    public static final String EXTRA_FROM_LOGIN = "extra_from_login";
 
     private PaymentRepository repository;
     private UserSessionManager sessionManager;
@@ -62,6 +72,25 @@ public class RoomLobbyActivity extends BaseThemedActivity {
     private ListenerRegistration pendingApprovalListener;
     private AlertDialog waitingApprovalDialog;
     private String listeningPendingRoomId;
+    private LoadingOverlayController loadingOverlay;
+
+    private TextInputEditText activeJoinKeyEditText;
+
+    private final ActivityResultLauncher<ScanOptions> roomQrScanLauncher =
+            registerForActivityResult(new ScanContract(), result -> {
+                if (result.getContents() != null && !result.getContents().trim().isEmpty()) {
+                    String raw = result.getContents().trim();
+                    String key = raw;
+                    if (raw.startsWith("ROOM_INVITE|")) {
+                        key = raw.substring("ROOM_INVITE|".length()).trim();
+                    }
+                    if (activeJoinKeyEditText != null) {
+                        activeJoinKeyEditText.setText(key);
+                        activeJoinKeyEditText.setSelection(key.length());
+                    }
+                    Toast.makeText(this, "Room Key scanned: " + key, Toast.LENGTH_SHORT).show();
+                }
+            });
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,6 +99,7 @@ public class RoomLobbyActivity extends BaseThemedActivity {
 
         repository = new PaymentRepository(this);
         sessionManager = UserSessionManager.getInstance(this);
+        loadingOverlay = new LoadingOverlayController(this);
 
         View root = findViewById(R.id.roomLobbyRoot);
         ViewCompat.setOnApplyWindowInsetsListener(root, (v, insets) -> {
@@ -87,8 +117,10 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         MaterialButton btnJoinPrivateRoom = findViewById(R.id.btnJoinPrivateRoom);
         RecyclerView rvJoinedRooms = findViewById(R.id.rvJoinedRooms);
 
-        btnOpenAuthProfile.setOnClickListener(v ->
-                startActivity(new Intent(this, AuthActivity.class)));
+        btnOpenAuthProfile.setOnClickListener(v -> {
+            Class<?> targetActivity = sessionManager.isSignedIn() ? ProfileActivity.class : AuthActivity.class;
+            startActivity(new Intent(this, targetActivity));
+        });
         btnCreatePrivateRoom.setOnClickListener(v -> showCreatePrivateRoomDialog());
         btnJoinPrivateRoom.setOnClickListener(v -> showJoinPrivateRoomDialog());
 
@@ -106,6 +138,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                             "Switched to room: " + result.roomName + " (" + sessionManager.getActiveRoomRole() + ")",
                             Toast.LENGTH_SHORT
                     ).show();
+                    Intent intent = new Intent(RoomLobbyActivity.this, MainActivity.class);
+                    intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    startActivity(intent);
                     finish();
                 }
             }
@@ -130,6 +165,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
         refreshUserSubtitle();
         adapter.notifyDataSetChanged();
 
+        // Refresh cloud workspaces in background
+        com.example.qr_paymentscan_cash_n_online.util.RoomDiscoveryManager.discoverRooms(this, null);
+
         // If the active room is currently waiting for Owner approval, attach real-time listener
         if (sessionManager.isPendingApproval()) {
             String activeRoomId = sessionManager.getActiveRoomId();
@@ -141,6 +179,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
 
     @Override
     protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
         stopPendingApprovalListener();
         if (waitingApprovalDialog != null && waitingApprovalDialog.isShowing()) {
             waitingApprovalDialog.dismiss();
@@ -157,32 +198,17 @@ public class RoomLobbyActivity extends BaseThemedActivity {
     }
 
     private void showCreatePrivateRoomDialog() {
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        container.setPadding(pad, pad / 2, pad, 0);
-
-        EditText etRoomName = new EditText(this);
-        etRoomName.setHint("Room Name (e.g., BSCS 3A Class Funds)");
-        etRoomName.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_WORDS);
-        container.addView(etRoomName);
-
-        EditText etRoomPassword = new EditText(this);
-        etRoomPassword.setHint("Strong Password (8+ chars, A-Z, a-z, 0-9)");
-        etRoomPassword.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        lp.topMargin = pad / 2;
-        etRoomPassword.setLayoutParams(lp);
-        container.addView(etRoomPassword);
-
-        TextView tvStrength = new TextView(this);
-        tvStrength.setText("Password Policy: Min 8 chars with uppercase, lowercase & number");
-        tvStrength.setTextSize(12f);
-        tvStrength.setTextColor(ContextCompat.getColor(this, R.color.text_secondary));
-        container.addView(tvStrength);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_create_room, null);
+        TextInputLayout tilRoomName = dialogView.findViewById(R.id.tilCreateRoomName);
+        TextInputEditText etRoomName = dialogView.findViewById(R.id.etCreateRoomName);
+        TextInputLayout tilRoomPassword = dialogView.findViewById(R.id.tilCreateRoomPassword);
+        TextInputEditText etRoomPassword = dialogView.findViewById(R.id.etCreateRoomPassword);
+        TextInputLayout tilConfirmPassword = dialogView.findViewById(R.id.tilCreateRoomConfirmPassword);
+        TextInputEditText etConfirmPassword = dialogView.findViewById(R.id.etCreateRoomConfirmPassword);
+        LinearProgressIndicator progressStrength = dialogView.findViewById(R.id.progressPasswordStrength);
+        TextView tvStrengthLabel = dialogView.findViewById(R.id.tvPasswordStrengthLabel);
+        TextView tvPolicyHint = dialogView.findViewById(R.id.tvPasswordPolicyHint);
+        CheckBox cbRequireApproval = dialogView.findViewById(R.id.cbRequireApproval);
 
         etRoomPassword.addTextChangedListener(new TextWatcher() {
             @Override
@@ -192,14 +218,34 @@ public class RoomLobbyActivity extends BaseThemedActivity {
             @Override
             public void onTextChanged(CharSequence s, int start, int before, int count) {
                 String pass = s != null ? s.toString() : "";
+                if (pass.isEmpty()) {
+                    progressStrength.setProgress(0);
+                    tvStrengthLabel.setText("Weak");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_void_red));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_void_red));
+                    tvPolicyHint.setText("Must include 8+ chars with uppercase, lowercase, and numbers");
+                    return;
+                }
                 String err = RoomSecurityHelper.validatePasswordStrength(pass);
                 String strength = RoomSecurityHelper.getPasswordStrengthLabel(pass);
-                if (err != null) {
-                    tvStrength.setText("Strength: " + strength + " • " + err);
-                    tvStrength.setTextColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_void_red));
+                if ("Strong".equalsIgnoreCase(strength) && err == null) {
+                    progressStrength.setProgress(100);
+                    tvStrengthLabel.setText("Strong");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_paid_green));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_paid_green));
+                    tvPolicyHint.setText("PBKDF2-SHA256 Ready • Excellent security");
+                } else if ("Fair".equalsIgnoreCase(strength)) {
+                    progressStrength.setProgress(60);
+                    tvStrengthLabel.setText("Fair");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_warning_amber));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_warning_amber));
+                    tvPolicyHint.setText(err != null ? err : "Add uppercase, lowercase and numbers for maximum strength");
                 } else {
-                    tvStrength.setText("Strength: " + strength + " • PBKDF2-SHA256 Ready");
-                    tvStrength.setTextColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_paid_green));
+                    progressStrength.setProgress(25);
+                    tvStrengthLabel.setText("Weak");
+                    tvStrengthLabel.setTextColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_void_red));
+                    progressStrength.setIndicatorColor(ContextCompat.getColor(RoomLobbyActivity.this, R.color.status_void_red));
+                    tvPolicyHint.setText(err != null ? err : "Min 8 chars with uppercase, lowercase, and numbers");
                 }
             }
 
@@ -208,32 +254,43 @@ public class RoomLobbyActivity extends BaseThemedActivity {
             }
         });
 
-        CheckBox cbRequireApproval = new CheckBox(this);
-        cbRequireApproval.setText("Require Owner Approval before new members can view data");
-        cbRequireApproval.setChecked(true);
-        LinearLayout.LayoutParams cbLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        cbLp.topMargin = pad / 2;
-        cbRequireApproval.setLayoutParams(cbLp);
-        container.addView(cbRequireApproval);
-
         AlertDialog dialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("Create Hardened Private Room")
-                .setMessage("Generates a unique Room Key (KEY-XXXXXX), 16-byte cryptographic salt (PBKDF2-SHA256), and 256-bit HMAC QR signing secret.")
-                .setView(container)
+                .setView(dialogView)
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Create Room", null)
                 .create();
 
         dialog.setOnShowListener(d -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            String name = etRoomName.getText().toString().trim();
-            String pass = etRoomPassword.getText().toString().trim();
+            String name = etRoomName.getText() != null ? etRoomName.getText().toString().trim() : "";
+            String pass = etRoomPassword.getText() != null ? etRoomPassword.getText().toString().trim() : "";
+            String confirmPass = etConfirmPassword.getText() != null ? etConfirmPassword.getText().toString().trim() : "";
+
+            if (name.isEmpty()) {
+                tilRoomName.setError("Room name is required");
+                return;
+            }
+            tilRoomName.setError(null);
+
+            String passErr = RoomSecurityHelper.validatePasswordStrength(pass);
+            if (passErr != null) {
+                tilRoomPassword.setError(passErr);
+                return;
+            }
+            tilRoomPassword.setError(null);
+
+            if (!pass.equals(confirmPass)) {
+                tilConfirmPassword.setError("Passwords do not match");
+                return;
+            }
+            tilConfirmPassword.setError(null);
+
             boolean requireApproval = cbRequireApproval.isChecked();
+            loadingOverlay.show("Creating Private Room...", "Generating PBKDF2 salt and HMAC key");
             repository.createPrivateRoom(name, pass, requireApproval, new PaymentRepository.ResultCallback<RoomEntity>() {
                 @Override
                 public void onSuccess(RoomEntity room) {
+                    loadingOverlay.hide();
                     dialog.dismiss();
                     new MaterialAlertDialogBuilder(RoomLobbyActivity.this)
                             .setTitle("Private Room Created!")
@@ -248,7 +305,8 @@ public class RoomLobbyActivity extends BaseThemedActivity {
 
                 @Override
                 public void onError(String message) {
-                    Toast.makeText(RoomLobbyActivity.this, message, Toast.LENGTH_LONG).show();
+                    loadingOverlay.hide();
+                    tilRoomPassword.setError(message);
                 }
             });
         }));
@@ -257,56 +315,59 @@ public class RoomLobbyActivity extends BaseThemedActivity {
     }
 
     private void showJoinPrivateRoomDialog() {
-        LinearLayout container = new LinearLayout(this);
-        container.setOrientation(LinearLayout.VERTICAL);
-        int pad = (int) (20 * getResources().getDisplayMetrics().density);
-        container.setPadding(pad, pad / 2, pad, 0);
+        View dialogView = LayoutInflater.from(this).inflate(R.layout.dialog_join_room, null);
+        TextInputLayout tilKey = dialogView.findViewById(R.id.tilJoinRoomKey);
+        TextInputEditText etKey = dialogView.findViewById(R.id.etJoinRoomKey);
+        MaterialButton btnScanQr = dialogView.findViewById(R.id.btnScanRoomQr);
+        TextInputLayout tilPass = dialogView.findViewById(R.id.tilJoinRoomPassword);
+        TextInputEditText etPass = dialogView.findViewById(R.id.etJoinRoomPassword);
 
-        EditText etRoomKey = new EditText(this);
-        etRoomKey.setHint("Room Key (e.g., KEY-4829AX)");
-        etRoomKey.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
-        container.addView(etRoomKey);
+        activeJoinKeyEditText = etKey;
 
-        EditText etRoomPassword = new EditText(this);
-        etRoomPassword.setHint("Room Password");
-        etRoomPassword.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-        );
-        lp.topMargin = pad / 2;
-        etRoomPassword.setLayoutParams(lp);
-        container.addView(etRoomPassword);
+        btnScanQr.setOnClickListener(v -> {
+            ScanOptions options = new ScanOptions();
+            options.setPrompt("Align Room Invite QR code inside viewfinder");
+            options.setDesiredBarcodeFormats(ScanOptions.QR_CODE);
+            options.setOrientationLocked(false);
+            options.setBeepEnabled(true);
+            roomQrScanLauncher.launch(options);
+        });
 
         AlertDialog joinDialog = new MaterialAlertDialogBuilder(this)
                 .setTitle("Join Private Room")
-                .setMessage("Enter both the Room Key and the Room Password shared by the Room Owner.")
-                .setView(container)
-                .setNegativeButton("Cancel", null)
+                .setView(dialogView)
+                .setNegativeButton("Cancel", (d, w) -> activeJoinKeyEditText = null)
                 .setPositiveButton("Verify & Join", null)
                 .create();
+
+        joinDialog.setOnDismissListener(d -> activeJoinKeyEditText = null);
 
         joinDialog.setOnShowListener(d -> {
             final MaterialButton positiveBtn = (MaterialButton) joinDialog.getButton(AlertDialog.BUTTON_POSITIVE);
             joinDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-                String key = etRoomKey.getText().toString().trim();
-                String pass = etRoomPassword.getText().toString().trim();
-                if (key.isEmpty() || pass.isEmpty()) {
-                    Toast.makeText(
-                            RoomLobbyActivity.this,
-                            "Invalid Room Key or Password. Please try again.",
-                            Toast.LENGTH_LONG
-                    ).show();
+                String key = etKey.getText() != null ? etKey.getText().toString().trim() : "";
+                String pass = etPass.getText() != null ? etPass.getText().toString().trim() : "";
+                if (key.isEmpty()) {
+                    tilKey.setError("Room Key is required");
                     return;
                 }
+                tilKey.setError(null);
+                if (pass.isEmpty()) {
+                    tilPass.setError("Room Password is required");
+                    return;
+                }
+                tilPass.setError(null);
+
                 if (positiveBtn != null) {
                     positiveBtn.setEnabled(false);
                 }
+                loadingOverlay.show("Connecting to Room...", "Verifying credentials and membership");
                 verifyAndSubmitRoomJoinRequest(
                         key,
                         pass,
                         joinDialog,
                         () -> {
+                            loadingOverlay.hide();
                             if (positiveBtn != null) {
                                 positiveBtn.setEnabled(true);
                             }
@@ -614,6 +675,7 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                                     new PaymentRepository.ResultCallback<RoomEntity>() {
                                         @Override
                                         public void onSuccess(RoomEntity room) {
+                                            loadingOverlay.hide();
                                             if (joinDialog.isShowing()) {
                                                 joinDialog.dismiss();
                                             }
@@ -627,6 +689,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                                                         "Joined \"" + room.roomName + "\" as " + assignedRole,
                                                         Toast.LENGTH_LONG
                                                 ).show();
+                                                Intent intent = new Intent(RoomLobbyActivity.this, MainActivity.class);
+                                                intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                                                startActivity(intent);
                                                 finish();
                                             }
                                         }
@@ -666,6 +731,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                                                 "Joined \"" + room.roomName + "\" as " + assignedRole,
                                                 Toast.LENGTH_LONG
                                         ).show();
+                                        Intent intent = new Intent(RoomLobbyActivity.this, MainActivity.class);
+                                        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                                        startActivity(intent);
                                         finish();
                                     }
                                 }
@@ -772,6 +840,9 @@ public class RoomLobbyActivity extends BaseThemedActivity {
                                                     "Your join request has been approved!",
                                                     Toast.LENGTH_LONG
                                             ).show();
+                                            Intent intent = new Intent(RoomLobbyActivity.this, MainActivity.class);
+                                            intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                                            startActivity(intent);
                                             finish();
                                         }
 

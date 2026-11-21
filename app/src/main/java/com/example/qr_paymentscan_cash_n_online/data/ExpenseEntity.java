@@ -19,6 +19,10 @@ public class ExpenseEntity {
     public static final String SYNC_PENDING = "PENDING";
     public static final String SYNC_SYNCED = "SYNCED";
 
+    public static final String IMAGE_STATUS_NONE = "NONE";
+    public static final String IMAGE_STATUS_PENDING_UPLOAD = "PENDING_UPLOAD";
+    public static final String IMAGE_STATUS_UPLOADED = "UPLOADED";
+
     @PrimaryKey(autoGenerate = true)
     public long id;
 
@@ -80,6 +84,13 @@ public class ExpenseEntity {
 
     @ColumnInfo(name = "actor_role")
     public String actorRole;
+
+    @ColumnInfo(name = "proof_image_url")
+    public String proofImageUrl;
+
+    @NonNull
+    @ColumnInfo(name = "image_sync_status", defaultValue = "'NONE'")
+    public String imageSyncStatus = IMAGE_STATUS_NONE;
 
     @Ignore
     public ExpenseEntity(

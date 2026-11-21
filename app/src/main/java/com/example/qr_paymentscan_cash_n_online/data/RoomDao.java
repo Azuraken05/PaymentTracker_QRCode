@@ -29,6 +29,9 @@ public interface RoomDao {
     @Query("SELECT * FROM rooms ORDER BY updated_at DESC")
     LiveData<List<RoomEntity>> observeAllRooms();
 
+    @Query("SELECT r.* FROM rooms r INNER JOIN room_members m ON r.room_id = m.room_id WHERE m.user_id = :userId AND m.status = 'ACTIVE' ORDER BY r.updated_at DESC")
+    List<RoomEntity> getActiveRoomsForUserSync(String userId);
+
     @Query("SELECT room_signing_secret FROM rooms")
     List<String> getAllRoomSigningSecretsSync();
 
@@ -46,6 +49,9 @@ public interface RoomDao {
 
     @Query("UPDATE rooms SET room_signing_secret = :newSigningSecret, updated_at = :updatedAt WHERE room_id = :roomId")
     void updateRoomSigningSecret(String roomId, String newSigningSecret, long updatedAt);
+
+    @Query("UPDATE rooms SET owner_name = :newName WHERE owner_user_id = :userId")
+    void updateOwnerNameByUser(String userId, String newName);
 
     @Query("UPDATE rooms SET failed_join_count = :failedCount, lockout_until = :lockoutUntil, updated_at = :updatedAt WHERE room_id = :roomId")
     void updateBruteForceState(String roomId, int failedCount, long lockoutUntil, long updatedAt);

@@ -283,8 +283,17 @@ public final class UserSessionManager {
     }
 
     /**
+     * Returns true if the current user can void receipts/expenses or edit records.
+     * Allowed for both ACTIVE OWNER and COLLECTOR (AUDITOR remains read-only).
+     */
+    public synchronized boolean canVoidOrEditRecords() {
+        return canCreateOrEditRecords();
+    }
+
+    /**
      * Returns true if the current user can void receipts/expenses, delete folders, or manage members.
-     * Restricted strictly to an ACTIVE OWNER.
+     * Voiding is also permitted for collectors via canVoidOrEditRecords(), while folder deletion
+     * and member management remain restricted strictly to an ACTIVE OWNER.
      */
     public synchronized boolean canVoidOrDeleteOrManageMembers() {
         return isOwner();

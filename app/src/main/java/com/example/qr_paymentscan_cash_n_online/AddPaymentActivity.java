@@ -28,12 +28,15 @@ import com.example.qr_paymentscan_cash_n_online.data.AppDatabase;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentEntity;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
+import com.example.qr_paymentscan_cash_n_online.ui.LoadingOverlayController;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.LocalStorageManager;
+import com.example.qr_paymentscan_cash_n_online.util.PaymentValidationHelper;
 import com.google.android.material.button.MaterialButton;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.card.MaterialCardView;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.snackbar.Snackbar;
 import com.google.android.material.textfield.TextInputEditText;
@@ -66,10 +69,13 @@ public class AddPaymentActivity extends BaseThemedActivity {
     private LinearLayout layoutGcashOnlyContainer;
     private TextInputLayout tilGcashRef;
     private TextInputEditText etGcashRef;
+    private TextInputLayout tilOtherProviderName;
+    private TextInputEditText etOtherProviderName;
     private MaterialCardView cardProofPreview;
     private ImageView ivProofPreview;
     private TextView tvProofSavedStatus;
     private MaterialButton btnSubmitPayment;
+    private LoadingOverlayController loadingOverlay;
 
     private String selectedPaymentMethod = PaymentEntity.METHOD_CASH;
     private String savedInternalProofPath = null;
@@ -108,6 +114,7 @@ public class AddPaymentActivity extends BaseThemedActivity {
         setContentView(R.layout.activity_add_payment);
 
         rootView = findViewById(R.id.addPaymentRoot);
+        loadingOverlay = new LoadingOverlayController(this);
         ViewCompat.setOnApplyWindowInsetsListener(rootView, (v, insets) -> {
             Insets systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars());
             v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom);
@@ -138,7 +145,9 @@ public class AddPaymentActivity extends BaseThemedActivity {
         tilAmount = findViewById(R.id.tilAmount);
         etAmount = findViewById(R.id.etAmount);
 
-        MaterialButtonToggleGroup togglePaymentMethod = findViewById(R.id.togglePaymentMethod);
+        ChipGroup chipGroupPaymentProviders = findViewById(R.id.chipGroupPaymentProviders);
+        tilOtherProviderName = findViewById(R.id.tilOtherProviderName);
+        etOtherProviderName = findViewById(R.id.etOtherProviderName);
         layoutGcashOnlyContainer = findViewById(R.id.layoutGcashOnlyContainer);
         tilGcashRef = findViewById(R.id.tilGcashRef);
         etGcashRef = findViewById(R.id.etGcashRef);
@@ -149,16 +158,33 @@ public class AddPaymentActivity extends BaseThemedActivity {
         tvProofSavedStatus = findViewById(R.id.tvProofSavedStatus);
         btnSubmitPayment = findViewById(R.id.btnSubmitPayment);
 
-        togglePaymentMethod.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-            if (!isChecked) {
-                return;
-            }
-            if (checkedId == R.id.btnSelectGcash) {
-                selectedPaymentMethod = PaymentEntity.METHOD_GCASH;
-                layoutGcashOnlyContainer.setVisibility(View.VISIBLE);
-            } else {
-                selectedPaymentMethod = PaymentEntity.METHOD_CASH;
+        chipGroupPaymentProviders.setOnCheckedStateChangeListener((group, checkedIds) -> {
+            if (checkedIds.isEmpty()) return;
+            int id = checkedIds.get(0);
+            if (id == R.id.chipProviderCash) {
+                selectedPaymentMethod = PaymentValidationHelper.PROVIDER_CASH;
                 layoutGcashOnlyContainer.setVisibility(View.GONE);
+                tilOtherProviderName.setVisibility(View.GONE);
+            } else if (id == R.id.chipProviderGcash) {
+                selectedPaymentMethod = PaymentValidationHelper.PROVIDER_GCASH;
+                layoutGcashOnlyContainer.setVisibility(View.VISIBLE);
+                tilOtherProviderName.setVisibility(View.GONE);
+            } else if (id == R.id.chipProviderMaya) {
+                selectedPaymentMethod = PaymentValidationHelper.PROVIDER_MAYA;
+                layoutGcashOnlyContainer.setVisibility(View.VISIBLE);
+                tilOtherProviderName.setVisibility(View.GONE);
+            } else if (id == R.id.chipProviderGoTyme) {
+                selectedPaymentMethod = PaymentValidationHelper.PROVIDER_GOTYME;
+                layoutGcashOnlyContainer.setVisibility(View.VISIBLE);
+                tilOtherProviderName.setVisibility(View.GONE);
+            } else if (id == R.id.chipProviderBankTransfer) {
+                selectedPaymentMethod = PaymentValidationHelper.PROVIDER_BANK_TRANSFER;
+                layoutGcashOnlyContainer.setVisibility(View.VISIBLE);
+                tilOtherProviderName.setVisibility(View.GONE);
+            } else if (id == R.id.chipProviderOtherOnline) {
+                selectedPaymentMethod = PaymentValidationHelper.PROVIDER_OTHER_ONLINE;
+                layoutGcashOnlyContainer.setVisibility(View.VISIBLE);
+                tilOtherProviderName.setVisibility(View.VISIBLE);
             }
         });
 
@@ -182,6 +208,14 @@ public class AddPaymentActivity extends BaseThemedActivity {
         } catch (Exception e) {
             Snackbar.make(rootView, "Unable to launch camera: " + e.getMessage(), Snackbar.LENGTH_LONG).show();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (loadingOverlay != null) {
+            loadingOverlay.release();
+        }
+        super.onDestroy();
     }
 
     private void persistProofUriToInternalStorage(Uri sourceUri) {
@@ -262,28 +296,48 @@ public class AddPaymentActivity extends BaseThemedActivity {
             hasError = true;
         }
 
-        String gcashRef = null;
+        String effectivePaymentMethod = selectedPaymentMethod;
+        if (PaymentValidationHelper.PROVIDER_OTHER_ONLINE.equals(selectedPaymentMethod)) {
+            String customName = etOtherProviderName.getText() != null
+                    ? etOtherProviderName.getText().toString().trim()
+                    : "";
+            if (!customName.isEmpty()) {
+                effectivePaymentMethod = customName;
+            }
+        }
+
+        String gcashRef = "";
         String proofPath = null;
 
-        if (PaymentEntity.METHOD_GCASH.equals(selectedPaymentMethod)) {
-            gcashRef = etGcashRef.getText() != null ? etGcashRef.getText().toString().trim() : "";
-            if (gcashRef.length() < 13 || !gcashRef.matches("\\d+")) {
-                tilGcashRef.setError("Enter a valid numeric GCash Reference No. (minimum 13 digits)");
-                hasError = true;
-            }
-            if (savedInternalProofPath == null || !new File(savedInternalProofPath).exists()) {
-                tvProofSavedStatus.setText("REQUIRED: Please attach a GCash Proof of Payment screenshot or photo.");
+        if (PaymentValidationHelper.isOnline(effectivePaymentMethod)) {
+            String refInput = etGcashRef.getText() != null ? etGcashRef.getText().toString().trim() : "";
+            boolean hasLocalImage = savedInternalProofPath != null && new File(savedInternalProofPath).exists();
+            boolean valid = PaymentValidationHelper.validateOnlinePaymentProof(
+                    effectivePaymentMethod,
+                    refInput,
+                    hasLocalImage,
+                    false
+            );
+            if (!valid) {
+                tilGcashRef.setError("Reference ID or Proof Image is required for online payments");
+                tvProofSavedStatus.setText("REQUIRED: Please enter a Reference ID or attach a Proof Photo.");
                 tvProofSavedStatus.setTextColor(ContextCompat.getColor(this, R.color.status_void_red));
-                Snackbar.make(rootView, "GCash Proof of Payment picture is required.", Snackbar.LENGTH_LONG).show();
+                Snackbar.make(rootView, PaymentValidationHelper.ERROR_ONLINE_PROOF_OR_REF_REQUIRED, Snackbar.LENGTH_LONG).show();
                 hasError = true;
             } else {
-                proofPath = savedInternalProofPath;
+                tilGcashRef.setError(null);
+                gcashRef = refInput;
+                if (hasLocalImage) {
+                    proofPath = savedInternalProofPath;
+                }
             }
         }
 
         if (hasError) {
             return;
         }
+
+        selectedPaymentMethod = effectivePaymentMethod;
 
         final String finalStudentNo = fullStudentNumber;
         final double finalAmount = amount;
@@ -397,12 +451,14 @@ public class AddPaymentActivity extends BaseThemedActivity {
                         proofPath
                 ))
                 .setPositiveButton("Apply Toward Remaining Balance", (d, w) -> {
+                    loadingOverlay.show("Applying Installment...", "Updating across all connected devices");
                     repository.applyAdditionalPaymentToPartialReceipt(
                             existingPartial,
                             amount,
                             new PaymentRepository.ResultCallback<PaymentEntity>() {
                                 @Override
                                 public void onSuccess(PaymentEntity updatedReceipt) {
+                                    loadingOverlay.hide();
                                     Intent intent = new Intent(AddPaymentActivity.this, ReceiptDetailActivity.class);
                                     intent.putExtra(ReceiptDetailActivity.EXTRA_RECEIPT_ID, updatedReceipt.receiptId);
                                     startActivity(intent);
@@ -411,6 +467,7 @@ public class AddPaymentActivity extends BaseThemedActivity {
 
                                 @Override
                                 public void onError(String message) {
+                                    loadingOverlay.hide();
                                     btnSubmitPayment.setEnabled(true);
                                     Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                                 }
@@ -540,6 +597,7 @@ public class AddPaymentActivity extends BaseThemedActivity {
             String proofPath,
             String duplicateOverrideReason
     ) {
+        loadingOverlay.show("Verifying & Saving Payment...", "Updating across all connected devices");
         repository.recordPaymentWithDuplicateSupport(
                 sectionId,
                 firstName,
@@ -554,6 +612,7 @@ public class AddPaymentActivity extends BaseThemedActivity {
                 new PaymentRepository.ResultCallback<PaymentEntity>() {
                     @Override
                     public void onSuccess(PaymentEntity result) {
+                        loadingOverlay.hide();
                         Intent intent = new Intent(AddPaymentActivity.this, ReceiptDetailActivity.class);
                         intent.putExtra(ReceiptDetailActivity.EXTRA_RECEIPT_ID, result.receiptId);
                         startActivity(intent);
@@ -562,6 +621,7 @@ public class AddPaymentActivity extends BaseThemedActivity {
 
                     @Override
                     public void onError(String message) {
+                        loadingOverlay.hide();
                         btnSubmitPayment.setEnabled(true);
                         Snackbar.make(rootView, message, Snackbar.LENGTH_LONG).show();
                     }

@@ -34,6 +34,10 @@ public class PaymentEntity {
     public static final String SYNC_PENDING = "PENDING";
     public static final String SYNC_SYNCED = "SYNCED";
 
+    public static final String IMAGE_STATUS_NONE = "NONE";
+    public static final String IMAGE_STATUS_PENDING_UPLOAD = "PENDING_UPLOAD";
+    public static final String IMAGE_STATUS_UPLOADED = "UPLOADED";
+
     @PrimaryKey(autoGenerate = true)
     public long id;
 
@@ -131,6 +135,19 @@ public class PaymentEntity {
 
     @ColumnInfo(name = "duplicate_override_reason")
     public String duplicateOverrideReason;
+
+    @ColumnInfo(name = "proof_image_url")
+    public String proofImageUrl;
+
+    @NonNull
+    @ColumnInfo(name = "image_sync_status", defaultValue = "'NONE'")
+    public String imageSyncStatus = IMAGE_STATUS_NONE;
+
+    @ColumnInfo(name = "last_edited_by_name")
+    public String lastEditedByName;
+
+    @ColumnInfo(name = "last_edited_at", defaultValue = "0")
+    public long lastEditedAt = 0L;
 
     @Ignore
     public PaymentEntity(
@@ -328,8 +345,12 @@ public class PaymentEntity {
         return STATUS_PARTIAL.equalsIgnoreCase(paymentStatus) || remainingBalance > 0.009;
     }
 
+    public boolean isOnline() {
+        return paymentMethod != null && !METHOD_CASH.equalsIgnoreCase(paymentMethod.trim());
+    }
+
     public boolean isGcash() {
-        return METHOD_GCASH.equalsIgnoreCase(paymentMethod);
+        return isOnline();
     }
 
     public String getFormattedActorAttribution() {

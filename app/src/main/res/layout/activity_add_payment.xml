@@ -206,49 +206,90 @@
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
-                    <com.google.android.material.button.MaterialButtonToggleGroup
-                        android:id="@+id/togglePaymentMethod"
+                    <!-- Payment Provider Selection Chips -->
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipGroupPaymentProviders"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        app:checkedButton="@+id/btnSelectCash"
+                        app:checkedChip="@+id/chipProviderCash"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSelectCash"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:minWidth="0dp"
-                            android:paddingHorizontal="10dp"
-                            android:singleLine="true"
-                            android:text="Cash Payment"
-                            app:icon="@drawable/ic_payments"
-                            app:iconGravity="textStart"
-                            app:iconPadding="4dp" />
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderCash"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Cash"
+                            app:chipIcon="@drawable/ic_payments"
+                            app:chipIconSize="18dp" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/btnSelectGcash"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="48dp"
-                            android:layout_weight="1"
-                            android:ellipsize="end"
-                            android:maxLines="1"
-                            android:minWidth="0dp"
-                            android:paddingHorizontal="10dp"
-                            android:singleLine="true"
-                            android:text="Online (GCash)"
-                            app:icon="@drawable/ic_qr_code_2"
-                            app:iconGravity="textStart"
-                            app:iconPadding="4dp" />
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderGcash"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="GCash"
+                            app:chipIcon="@drawable/ic_qr_code_2"
+                            app:chipIconSize="18dp" />
 
-                    <!-- Conditional GCash-Only Verification Container -->
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderMaya"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Maya"
+                            app:chipIcon="@drawable/ic_account_balance_wallet"
+                            app:chipIconSize="18dp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderGoTyme"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="GoTyme"
+                            app:chipIcon="@drawable/ic_badge"
+                            app:chipIconSize="18dp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderBankTransfer"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Bank Transfer"
+                            app:chipIcon="@drawable/ic_receipt_long"
+                            app:chipIconSize="18dp" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipProviderOtherOnline"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Other Online"
+                            app:chipIcon="@drawable/ic_tag"
+                            app:chipIconSize="18dp" />
+                    </com.google.android.material.chip.ChipGroup>
+
+                    <!-- Optional Custom Provider Name input for 'Other Online' -->
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:id="@+id/tilOtherProviderName"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:hint="Provider Name (e.g., SeaBank, GrabPay, ShopeePay)"
+                        android:visibility="gone">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/etOtherProviderName"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="textCapWords"
+                            android:maxLines="1" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <!-- Conditional Online Verification Container -->
                     <LinearLayout
                         android:id="@+id/layoutGcashOnlyContainer"
                         android:layout_width="match_parent"
@@ -268,16 +309,17 @@
                             <ImageView
                                 android:layout_width="22dp"
                                 android:layout_height="22dp"
-                                android:contentDescription="GCash Verified"
+                                android:contentDescription="Online Verification"
                                 android:src="@drawable/ic_verified"
                                 app:tint="@color/gcash_blue" />
 
                             <TextView
+                                android:id="@+id/tvOnlineVerificationNotice"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_marginStart="8dp"
                                 android:layout_weight="1"
-                                android:text="@string/gcash_only_notice"
+                                android:text="Provide a Reference ID, a Proof Photo, or both."
                                 android:textColor="@color/gcash_blue_dark"
                                 android:textSize="13sp"
                                 android:textStyle="bold" />
@@ -289,17 +331,14 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:hint="GCash Reference Number (Min 13 Digits) *"
-                            app:boxBackgroundColor="@color/white"
-                            app:counterEnabled="true"
-                            app:counterMaxLength="20">
+                            android:hint="Reference / Transaction ID (Optional if proof photo attached)"
+                            app:boxBackgroundColor="@color/white">
 
                             <com.google.android.material.textfield.TextInputEditText
                                 android:id="@+id/etGcashRef"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:inputType="number"
-                                android:maxLength="20"
+                                android:inputType="textCapCharacters|textNoSuggestions"
                                 android:maxLines="1" />
                         </com.google.android.material.textfield.TextInputLayout>
 
@@ -307,7 +346,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
-                            android:text="Proof of GCash Payment (Required Picture) *"
+                            android:text="Proof of Payment Photo (Optional if Reference ID entered)"
                             android:textColor="@color/gcash_blue_dark"
                             android:textSize="13sp"
                             android:textStyle="bold" />

@@ -3,27 +3,30 @@
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 
-    <!-- Primary Royal Blue & Material 3 Palette -->
-    <color name="primary">#FF0B57D0</color>
-    <color name="brand_primary">#FF0B57D0</color>
-    <color name="brand_primary_dark">#FF041E49</color>
+    <!-- Deep Navy Slate Brand FinTech Palette -->
+    <color name="primary">#FF0F172A</color>
+    <color name="brand_primary">#FF0F172A</color>
+    <color name="brand_primary_dark">#FF020617</color>
     <color name="on_primary">#FFFFFFFF</color>
-    <color name="primary_container">#FFD3E3FD</color>
-    <color name="on_primary_container">#FF041E49</color>
+    <color name="primary_container">#FFE2E8F0</color>
+    <color name="on_primary_container">#FF0F172A</color>
 
-    <color name="secondary">#FF00639B</color>
+    <color name="secondary">#FF334155</color>
     <color name="on_secondary">#FFFFFFFF</color>
-    <color name="secondary_container">#FFC2E7FF</color>
-    <color name="on_secondary_container">#FF001D35</color>
+    <color name="secondary_container">#FFF1F5F9</color>
+    <color name="on_secondary_container">#FF0F172A</color>
 
-    <!-- Surface & Background -->
-    <color name="background_surface">#FFF8FAFD</color>
-    <color name="surface_background">#FFF8FAFD</color>
+    <!-- Surfaces & Cards -->
+    <color name="background_surface">#FFF8FAFC</color>
+    <color name="surface_background">#FFF8FAFC</color>
     <color name="card_surface">#FFFFFFFF</color>
-    <color name="surface_variant">#FFE1E6EF</color>
-    <color name="text_primary">#FF1F1F1F</color>
-    <color name="text_secondary">#FF444746</color>
-    <color name="divider_color">#FFDADCE0</color>
+    <color name="surface_variant">#FFF1F5F9</color>
+    <color name="card_stroke">#FFE2E8F0</color>
+    <color name="card_stroke_strong">#FFCBD5E1</color>
+    <color name="text_primary">#FF0F172A</color>
+    <color name="text_secondary">#FF475569</color>
+    <color name="text_muted">#FF64748B</color>
+    <color name="divider_color">#FFE2E8F0</color>
 
     <!-- GCash Official Blue Accent -->
     <color name="gcash_blue">#FF007DFE</color>
@@ -31,10 +34,24 @@
     <color name="gcash_blue_dark">#FF004B9A</color>
 
     <!-- Semantic Status Colors -->
-    <color name="status_paid_green">#FF146C2E</color>
-    <color name="status_paid_bg">#FFE6F4EA</color>
-    <color name="status_void_red">#FFB3261E</color>
-    <color name="status_void_bg">#FFFCE8E6</color>
-    <color name="status_warning_amber">#FFB06000</color>
-    <color name="status_warning_bg">#FFFEF7E0</color>
+    <!-- Verified / Active / Paid: Emerald -->
+    <color name="status_paid_green">#FF059669</color>
+    <color name="status_paid_bg">#FFECFDF5</color>
+    <color name="status_active_emerald">#FF059669</color>
+    <color name="status_active_container">#FFECFDF5</color>
+
+    <!-- Pending / Partial: Warm Amber -->
+    <color name="status_warning_amber">#FFD97706</color>
+    <color name="status_warning_bg">#FFFFFBEB</color>
+    <color name="status_pending_amber">#FFD97706</color>
+    <color name="status_pending_container">#FFFFFBEB</color>
+
+    <!-- Void / Revoked / Security Alert: Crimson -->
+    <color name="status_void_red">#FFDC2626</color>
+    <color name="status_void_bg">#FFFEF2F2</color>
+    <color name="status_alert_crimson">#FFDC2626</color>
+    <color name="status_alert_container">#FFFEF2F2</color>
+
+    <!-- Loading overlay scrim -->
+    <color name="loading_overlay_dim">#800B132B</color>
 </resources>

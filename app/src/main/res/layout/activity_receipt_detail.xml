@@ -147,11 +147,26 @@
                                 android:textStyle="bold" />
                         </LinearLayout>
 
+                        <!-- Edited Badge -->
+                        <TextView
+                            android:id="@+id/tvReceiptEditedBadge"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:background="@drawable/bg_loading_halo"
+                            android:paddingHorizontal="10dp"
+                            android:paddingVertical="3dp"
+                            android:textColor="@color/primary"
+                            android:textSize="11sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+
                         <TextView
                             android:id="@+id/tvReceiptAmountHero"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="12dp"
+                            android:fontFeatureSettings="tnum"
                             android:text="₱350.00"
                             android:textColor="@color/text_primary"
                             android:textSize="32sp"
@@ -214,6 +229,8 @@
                             android:id="@+id/tvReceiptIdValue"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:fontFamily="monospace"
+                            android:fontFeatureSettings="tnum"
                             android:text="RCP-20261120-8F3A9C"
                             android:textColor="@color/text_primary"
                             android:textSize="13sp"
@@ -265,6 +282,7 @@
                             android:id="@+id/tvReceiptStudentNumber"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:fontFeatureSettings="tnum"
                             android:text="02000123456"
                             android:textColor="@color/primary"
                             android:textSize="13sp"
@@ -339,6 +357,7 @@
                             android:id="@+id/tvReceiptGcashRef"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:fontFeatureSettings="tnum"
                             android:text="9012345678901"
                             android:textColor="@color/gcash_blue_dark"
                             android:textSize="13sp"
@@ -363,6 +382,7 @@
                             android:id="@+id/tvReceiptDateTime"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
+                            android:fontFeatureSettings="tnum"
                             android:text="Nov 20, 2026 • 02:30 PM"
                             android:textColor="@color/text_primary"
                             android:textSize="13sp" />
@@ -486,11 +506,24 @@
 
             <!-- Action Buttons -->
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnEditReceipt"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="match_parent"
+                android:layout_height="52dp"
+                android:layout_marginTop="16dp"
+                android:text="Edit Receipt"
+                android:textSize="14sp"
+                android:textStyle="bold"
+                app:cornerRadius="12dp"
+                app:icon="@drawable/ic_edit"
+                app:iconSize="18dp" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSaveReceiptToGallery"
                 style="@style/Widget.Material3.Button"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
-                android:layout_marginTop="16dp"
+                android:layout_marginTop="10dp"
                 android:text="@string/save_receipt_image"
                 android:textSize="14sp"
                 android:textStyle="bold"

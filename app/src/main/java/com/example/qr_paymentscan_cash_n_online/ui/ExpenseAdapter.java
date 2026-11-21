@@ -68,7 +68,9 @@ public class ExpenseAdapter extends RecyclerView.Adapter<ExpenseAdapter.ExpenseV
         holder.tvAmount.setText("- " + CurrencyFormatter.formatPhp(item.amount));
         holder.tvDate.setText(CurrencyFormatter.formatDateTime(item.createdAt));
 
-        boolean hasProof = item.proofImagePath != null && new File(item.proofImagePath).exists();
+        boolean hasProof = (item.proofImagePath != null && new File(item.proofImagePath).exists())
+                || (item.proofImageUrl != null && !item.proofImageUrl.trim().isEmpty())
+                || (item.remoteProofUrl != null && !item.remoteProofUrl.trim().isEmpty());
         holder.btnViewProof.setVisibility(hasProof ? View.VISIBLE : View.GONE);
         holder.btnViewProof.setOnClickListener(v -> {
             if (listener != null) {
@@ -89,7 +91,7 @@ public class ExpenseAdapter extends RecyclerView.Adapter<ExpenseAdapter.ExpenseV
             holder.tvStatusBadge.setBackgroundColor(ContextCompat.getColor(context, R.color.status_warning_bg));
             holder.tvStatusBadge.setTextColor(ContextCompat.getColor(context, R.color.status_warning_amber));
             holder.tvAmount.setPaintFlags(holder.tvAmount.getPaintFlags() & (~Paint.STRIKE_THRU_TEXT_FLAG));
-            boolean canVoid = session.canVoidOrDeleteOrManageMembers();
+            boolean canVoid = session.canVoidOrEditRecords();
             holder.btnVoidExpense.setVisibility(canVoid ? View.VISIBLE : View.GONE);
             holder.tvVoidReasonRow.setVisibility(View.GONE);
             holder.btnVoidExpense.setOnClickListener(v -> {
