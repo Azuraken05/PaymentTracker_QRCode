@@ -1,0 +1,616 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/sectionDetailRoot"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background_surface">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Section Top Header & Breadcrumb Bar -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/primary"
+            android:orientation="vertical"
+            android:paddingHorizontal="@dimen/screen_outer_margin"
+            android:paddingTop="12dp"
+            android:paddingBottom="14dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/btnBackSection"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Back"
+                    android:src="@drawable/ic_arrow_back"
+                    app:tint="@color/white" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvSectionTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="BSCS 3A"
+                        android:textColor="@color/white"
+                        android:textSize="@dimen/header_title_size"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvSectionSubtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Section Payment &amp; Expense Ledger"
+                        android:textColor="@color/primary_container"
+                        android:textSize="@dimen/label_text_size" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnVerifyQrSection"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:ellipsize="end"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:singleLine="true"
+                    android:text="@string/verify_qr"
+                    android:textSize="11sp"
+                    app:backgroundTint="@color/primary_container"
+                    app:cornerRadius="8dp"
+                    app:icon="@drawable/ic_qr_code_scanner"
+                    app:iconPadding="4dp"
+                    app:iconSize="16dp"
+                    app:iconTint="@color/on_primary_container" />
+
+                <ImageButton
+                    android:id="@+id/btnRenameSectionTop"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginStart="4dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Rename Folder"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_edit"
+                    app:tint="@color/white" />
+
+                <ImageButton
+                    android:id="@+id/btnDeleteSectionTop"
+                    android:layout_width="38dp"
+                    android:layout_height="38dp"
+                    android:layout_marginStart="2dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Delete Folder"
+                    android:padding="7dp"
+                    android:src="@drawable/ic_delete_outline"
+                    app:tint="@color/white" />
+            </LinearLayout>
+
+            <!-- Horizontal Breadcrumb Navigation Bar -->
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:id="@+id/layoutBreadcrumbContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+        </LinearLayout>
+
+        <!-- Scrollable Content: Financial Summary Card + Sub-Folders + Payments / Expenses -->
+        <androidx.core.widget.NestedScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:fillViewport="true">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingHorizontal="@dimen/screen_outer_margin"
+                android:paddingTop="12dp"
+                android:paddingBottom="88dp">
+
+                <!-- 1. Section Financial Summary Card (Gross Collected - Expenses = Net Balance) -->
+                <com.google.android.material.card.MaterialCardView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    app:cardBackgroundColor="@color/card_surface"
+                    app:cardCornerRadius="@dimen/card_corner_radius"
+                    app:cardElevation="0dp"
+                    app:strokeColor="?attr/colorOutlineVariant"
+                    app:strokeWidth="1dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="@dimen/card_inner_padding">
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:gravity="center_vertical"
+                            android:orientation="horizontal">
+
+                            <ImageView
+                                android:layout_width="22dp"
+                                android:layout_height="22dp"
+                                android:contentDescription="Net Balance"
+                                android:src="@drawable/ic_account_balance_wallet"
+                                app:tint="@color/primary" />
+
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="8dp"
+                                android:layout_weight="1"
+                                android:text="Net Remaining Balance"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="13sp"
+                                android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvSectionValidCount"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="0 Paid • 0 Voided"
+                                android:textColor="@color/text_secondary"
+                                android:textSize="12sp" />
+                        </LinearLayout>
+
+                        <TextView
+                            android:id="@+id/tvSectionNetBalance"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="₱0.00"
+                            android:textColor="@color/primary"
+                            android:textSize="28sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvCombinedTreeSubline"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:text="Combined with sub-folders: ₱0.00"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="11sp"
+                            android:visibility="gone" />
+
+                        <!-- Gross Collected vs Total Expenses Breakdown -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:baselineAligned="false"
+                            android:orientation="horizontal">
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:background="@color/status_paid_bg"
+                                android:orientation="vertical"
+                                android:padding="10dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Gross Collected"
+                                    android:textColor="@color/status_paid_green"
+                                    android:textSize="11sp" />
+
+                                <TextView
+                                    android:id="@+id/tvSectionGrossCollected"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="₱0.00"
+                                    android:textColor="@color/status_paid_green"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+
+                            <LinearLayout
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="6dp"
+                                android:layout_weight="1"
+                                android:background="@color/status_warning_bg"
+                                android:orientation="vertical"
+                                android:padding="10dp">
+
+                                <TextView
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:text="Total Expenses (Used)"
+                                    android:textColor="@color/status_warning_amber"
+                                    android:textSize="11sp" />
+
+                                <TextView
+                                    android:id="@+id/tvSectionExpensesTotal"
+                                    android:layout_width="wrap_content"
+                                    android:layout_height="wrap_content"
+                                    android:layout_marginTop="2dp"
+                                    android:text="- ₱0.00"
+                                    android:textColor="@color/status_void_red"
+                                    android:textSize="15sp"
+                                    android:textStyle="bold" />
+                            </LinearLayout>
+                        </LinearLayout>
+
+                        <!-- Action Buttons Row: New Payment, Add Expense, Excel, Audit -->
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnActionNewPayment"
+                                style="@style/Widget.Material3.Button"
+                                android:layout_width="0dp"
+                                android:layout_height="42dp"
+                                android:layout_marginEnd="5dp"
+                                android:layout_weight="1"
+                                android:ellipsize="end"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:maxLines="1"
+                                android:minWidth="0dp"
+                                android:paddingHorizontal="10dp"
+                                android:singleLine="true"
+                                android:text="New Payment"
+                                android:textSize="12sp"
+                                app:backgroundTint="@color/primary"
+                                app:cornerRadius="8dp"
+                                app:icon="@drawable/ic_add"
+                                app:iconGravity="textStart"
+                                app:iconPadding="4dp"
+                                app:iconSize="16dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnActionAddExpense"
+                                style="@style/Widget.Material3.Button.TonalButton"
+                                android:layout_width="0dp"
+                                android:layout_height="42dp"
+                                android:layout_marginStart="5dp"
+                                android:layout_weight="1"
+                                android:ellipsize="end"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:maxLines="1"
+                                android:minWidth="0dp"
+                                android:paddingHorizontal="10dp"
+                                android:singleLine="true"
+                                android:text="Add Expense"
+                                android:textSize="12sp"
+                                app:backgroundTint="@color/status_warning_bg"
+                                app:cornerRadius="8dp"
+                                app:icon="@drawable/ic_trending_down"
+                                app:iconGravity="textStart"
+                                app:iconPadding="4dp"
+                                app:iconSize="16dp"
+                                app:iconTint="@color/status_void_red" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnDownloadExcel"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_marginEnd="5dp"
+                                android:layout_weight="1.3"
+                                android:ellipsize="end"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:maxLines="1"
+                                android:minWidth="0dp"
+                                android:paddingHorizontal="10dp"
+                                android:singleLine="true"
+                                android:text="@string/download_excel"
+                                android:textSize="11sp"
+                                app:cornerRadius="8dp"
+                                app:icon="@drawable/ic_table_view"
+                                app:iconGravity="textStart"
+                                app:iconPadding="4dp"
+                                app:iconSize="16dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/btnSectionAuditLog"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="40dp"
+                                android:layout_marginStart="5dp"
+                                android:layout_weight="0.85"
+                                android:ellipsize="end"
+                                android:insetTop="0dp"
+                                android:insetBottom="0dp"
+                                android:maxLines="1"
+                                android:minWidth="0dp"
+                                android:paddingHorizontal="10dp"
+                                android:singleLine="true"
+                                android:text="Audit Log"
+                                android:textSize="11sp"
+                                app:cornerRadius="8dp"
+                                app:icon="@drawable/ic_history"
+                                app:iconGravity="textStart"
+                                app:iconPadding="4dp"
+                                app:iconSize="15dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- 2. Sub-Folders Header & Grid -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="18dp"
+                        android:layout_height="18dp"
+                        android:contentDescription="Sub-folders"
+                        android:src="@drawable/ic_folder_open"
+                        app:tint="@color/primary" />
+
+                    <TextView
+                        android:id="@+id/tvSubfoldersHeader"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        android:text="Sub-Folders (0)"
+                        android:textColor="@color/text_primary"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnNewSubfolder"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:singleLine="true"
+                        android:text="New Sub-Folder"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_create_new_folder"
+                        app:iconPadding="4dp"
+                        app:iconSize="16dp" />
+                </LinearLayout>
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvSubfolders"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:nestedScrollingEnabled="false"
+                    android:visibility="gone" />
+
+                <!-- 3. Segmented Mode Toggle: Payment Receipts vs Expenses (Deductions) -->
+                <com.google.android.material.button.MaterialButtonToggleGroup
+                    android:id="@+id/toggleSectionMode"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    app:checkedButton="@+id/btnTabPayments"
+                    app:selectionRequired="true"
+                    app:singleSelection="true">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTabPayments"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="8dp"
+                        android:singleLine="true"
+                        android:text="Payment Receipts"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_receipt_long"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="16dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnTabExpenses"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="8dp"
+                        android:singleLine="true"
+                        android:text="Expenses (Deductions)"
+                        android:textSize="12sp"
+                        app:icon="@drawable/ic_trending_down"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="16dp" />
+                </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                <!-- Search & Filter Chips -->
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:hint="Search student name, student no., receipt ID, or purpose..."
+                    app:boxCornerRadiusBottomEnd="12dp"
+                    app:boxCornerRadiusBottomStart="12dp"
+                    app:boxCornerRadiusTopEnd="12dp"
+                    app:boxCornerRadiusTopStart="12dp"
+                    app:endIconMode="clear_text"
+                    app:startIconDrawable="@drawable/ic_search">
+
+                    <com.google.android.material.textfield.TextInputEditText
+                        android:id="@+id/etSearchPayments"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:inputType="text"
+                        android:maxLines="1"
+                        android:paddingVertical="10dp"
+                        android:textSize="13sp" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <HorizontalScrollView
+                    android:id="@+id/scrollPaymentFilterChips"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:scrollbars="none">
+
+                    <com.google.android.material.chip.ChipGroup
+                        android:id="@+id/chipGroupPaymentFilter"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        app:selectionRequired="true"
+                        app:singleLine="true"
+                        app:singleSelection="true">
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipFilterAll"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:checked="true"
+                            android:text="All Records" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipFilterCash"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Cash Only" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipFilterGcash"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Online (GCash)" />
+
+                        <com.google.android.material.chip.Chip
+                            android:id="@+id/chipFilterVoided"
+                            style="@style/Widget.Material3.Chip.Filter"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Voided" />
+                    </com.google.android.material.chip.ChipGroup>
+                </HorizontalScrollView>
+
+                <!-- Payments & Expenses Lists -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvPayments"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:nestedScrollingEnabled="false" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/rvExpenses"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:nestedScrollingEnabled="false"
+                    android:visibility="gone" />
+
+                <LinearLayout
+                    android:id="@+id/layoutEmptyPayments"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="28dp"
+                    android:visibility="gone">
+
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:contentDescription="No records"
+                        android:src="@drawable/ic_receipt_long"
+                        app:tint="@color/primary" />
+
+                    <TextView
+                        android:id="@+id/tvEmptySectionListTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:text="No Records in This View"
+                        android:textColor="@color/text_primary"
+                        android:textSize="16sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvEmptySectionListSubtitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:gravity="center"
+                        android:text="Use &quot;New Payment&quot; or &quot;Add Expense&quot; above to record entries for this folder."
+                        android:textColor="@color/text_secondary"
+                        android:textSize="13sp" />
+                </LinearLayout>
+
+            </LinearLayout>
+        </androidx.core.widget.NestedScrollView>
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabNewPayment"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:text="@string/new_payment"
+        android:textColor="@color/white"
+        app:backgroundTint="@color/primary"
+        app:icon="@drawable/ic_add"
+        app:iconTint="@color/white" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

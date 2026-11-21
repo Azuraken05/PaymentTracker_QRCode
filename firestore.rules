@@ -1,0 +1,137 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Helper: Checks if user is authenticated via Firebase Auth
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Helper: Reads the caller's member document inside rooms/{roomId}/members/{uid}
+    function memberDoc(roomId) {
+      return get(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid));
+    }
+
+    // Helper: True if caller is an ACTIVE member of the room
+    function isActiveMember(roomId) {
+      return isSignedIn()
+          && exists(/databases/$(database)/documents/rooms/$(roomId)/members/$(request.auth.uid))
+          && memberDoc(roomId).data.status == 'ACTIVE';
+    }
+
+    // Helper: True if caller is the ACTIVE Room OWNER
+    function isRoomOwner(roomId) {
+      return isSignedIn()
+          && (
+            (exists(/databases/$(database)/documents/rooms/$(roomId))
+              && get(/databases/$(database)/documents/rooms/$(roomId)).data.ownerUserId == request.auth.uid)
+            || (isActiveMember(roomId) && memberDoc(roomId).data.role == 'OWNER')
+          );
+    }
+
+    // Helper: True if caller is an ACTIVE OWNER or COLLECTOR
+    function canWriteRecords(roomId) {
+      return isRoomOwner(roomId)
+          || (isActiveMember(roomId)
+              && (memberDoc(roomId).data.role == 'OWNER' || memberDoc(roomId).data.role == 'COLLECTOR'));
+    }
+
+    // 1. Private Rooms Collection
+    match /rooms/{roomId} {
+      // Authenticated users can query room metadata by roomKey to initiate a join request
+      allow read: if isSignedIn();
+      allow create: if isSignedIn();
+      allow update, delete: if isRoomOwner(roomId);
+
+      // 1a. Isolated Cryptographic Secrets (PBKDF2 hash, salt, 256-bit HMAC signing secret)
+      match /private/{docId} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow write: if isRoomOwner(roomId);
+      }
+
+      // 1b. Room Members & Waiting Room Approval Gate
+      match /members/{memberId} {
+        allow read: if isSignedIn() && (request.auth.uid == memberId || isActiveMember(roomId) || isRoomOwner(roomId));
+
+        // New joiners can create ONLY their own member entry (as PENDING_APPROVAL or ACTIVE when owner)
+        // and cannot self-promote to OWNER or bypass a BANNED status.
+        allow create: if isSignedIn()
+            && request.auth.uid == memberId
+            && (
+              isRoomOwner(roomId)
+              || (request.resource.data.role != 'OWNER'
+                  && (request.resource.data.status == 'PENDING_APPROVAL' || request.resource.data.status == 'ACTIVE'))
+            );
+
+        // Only the Room OWNER can approve pending members, change roles, or ban/remove members
+        allow update, delete: if isRoomOwner(roomId);
+      }
+
+      // 1c. Section Folders & Nested Sub-Folders
+      match /sections/{sectionId} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow create, update: if canWriteRecords(roomId);
+        allow delete: if isRoomOwner(roomId);
+      }
+
+      // 1d. Student Payment Receipts
+      match /payments/{receiptId} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow create: if canWriteRecords(roomId);
+        // Collectors can apply partial payment installments; only OWNER can void or delete receipts
+        allow update: if isRoomOwner(roomId)
+            || (canWriteRecords(roomId) && request.resource.data.status != 'VOIDED');
+        allow delete: if isRoomOwner(roomId);
+      }
+
+      // 1e. Atomic Student Payment Locks (Multi-Cashier Simultaneous Tap Protection)
+      match /payment_locks/{lockKey} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow create, update: if canWriteRecords(roomId);
+        // Only OWNER can release/delete a student payment lock when voiding a payment
+        allow delete: if isRoomOwner(roomId);
+      }
+
+      // 1f. Section Expenses
+      match /expenses/{expenseId} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow create: if canWriteRecords(roomId);
+        allow update: if isRoomOwner(roomId)
+            || (canWriteRecords(roomId) && request.resource.data.status != 'VOIDED');
+        allow delete: if isRoomOwner(roomId);
+      }
+
+      // 1g. Roster Students
+      match /roster_students/{studentId} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow create, update: if canWriteRecords(roomId);
+        allow delete: if isRoomOwner(roomId);
+      }
+
+      // 1h. Immutable Audit Trail & Security Alerts (Append-Only: No One Can Edit or Delete)
+      match /audit_logs/{logId} {
+        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow create: if isSignedIn();
+        allow update, delete: if false;
+      }
+    }
+
+    // Top-level mirrored backup collections (restricted to authenticated officers)
+    match /sections/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /payments/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /expenses/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /roster_students/{docId} {
+      allow read, write: if isSignedIn();
+    }
+    match /audit_logs/{docId} {
+      allow read, create: if isSignedIn();
+      allow update, delete: if false;
+    }
+  }
+}

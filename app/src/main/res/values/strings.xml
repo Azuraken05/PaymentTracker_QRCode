@@ -1,0 +1,14 @@
+<resources>
+    <string name="app_name">Student QR Payment Tracker</string>
+    <string name="subtitle_offline_badge">100% Offline Local Storage • Tamper-Evident QR</string>
+    <string name="verify_qr">Verify QR</string>
+    <string name="audit_log">Audit Log</string>
+    <string name="backup_restore">Backup / Restore</string>
+    <string name="new_section_folder">New Section Folder</string>
+    <string name="new_payment">New Payment</string>
+    <string name="download_excel">Download Excel (.xlsx)</string>
+    <string name="save_receipt_image">Save Receipt Image</string>
+    <string name="void_payment">Void Payment</string>
+    <string name="gcash_only_notice">Online Payment Mode: GCash Only (Reference No. &amp; Proof Photo Required)</string>
+    <string name="add_expense">Add Expense</string>
+</resources>

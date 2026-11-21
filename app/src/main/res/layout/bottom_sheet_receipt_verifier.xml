@@ -1,0 +1,151 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@color/card_surface"
+    android:orientation="vertical"
+    android:padding="20dp">
+
+    <!-- Verdict Header Card -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardVerdictHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:cardBackgroundColor="@color/status_paid_bg"
+        app:cardCornerRadius="14dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/status_paid_green"
+        app:strokeWidth="1.5dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <ImageView
+                android:id="@+id/ivVerdictIcon"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:contentDescription="Verification Verdict"
+                android:src="@drawable/ic_verified"
+                app:tint="@color/status_paid_green" />
+
+            <TextView
+                android:id="@+id/tvVerdictTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:gravity="center"
+                android:text="AUTHENTIC &amp; VALID RECEIPT"
+                android:textColor="@color/status_paid_green"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvVerdictSubtitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center"
+                android:text="HMAC-SHA256 cryptographic signature verified against local database."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Voided Warning Alert Box -->
+    <LinearLayout
+        android:id="@+id/layoutVerifierVoidAlert"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@color/status_void_bg"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvVerifierVoidReason"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="VOID REASON: Duplicate Entry"
+            android:textColor="@color/status_void_red"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tvVerifierVoidDate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:text="Voided On: Nov 20, 2026"
+            android:textColor="@color/status_void_red"
+            android:textSize="11sp" />
+    </LinearLayout>
+
+    <!-- Verified Record Details Container -->
+    <LinearLayout
+        android:id="@+id/layoutVerifiedRecordDetails"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="14dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/tvVerifierAmount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center"
+            android:text="₱350.00"
+            android:textColor="@color/text_primary"
+            android:textSize="26sp"
+            android:textStyle="bold" />
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:layout_marginVertical="10dp"
+            android:background="@color/divider_color" />
+
+        <TextView
+            android:id="@+id/tvVerifierDetailsSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:lineSpacingExtra="4dp"
+            android:text="Receipt ID: RCP-20261120\nStudent: Juan Dela Cruz\nSection: BSCS 3A"
+            android:textColor="@color/text_primary"
+            android:textSize="13sp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnVerifierViewProof"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:text="View Attached GCash Proof Photo"
+            android:visibility="gone"
+            app:icon="@drawable/ic_image" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnVerifierOpenFullReceipt"
+            style="@style/Widget.Material3.Button"
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:text="Open Official Receipt Record"
+            app:backgroundTint="@color/primary"
+            app:icon="@drawable/ic_receipt_long" />
+    </LinearLayout>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnVerifierDismiss"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="12dp"
+        android:text="Close" />
+
+</LinearLayout>

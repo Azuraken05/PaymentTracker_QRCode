@@ -1,0 +1,338 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/background_surface"
+    tools:context=".MainActivity">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical">
+
+        <!-- Clean Material 3 Header Banner (No Money Totals on Home) -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/primary"
+            android:orientation="vertical"
+            android:paddingHorizontal="@dimen/screen_outer_margin"
+            android:paddingTop="18dp"
+            android:paddingBottom="18dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <ImageView
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:layout_marginEnd="10dp"
+                    android:contentDescription="@string/app_name"
+                    android:src="@drawable/ic_app_logo" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/app_name"
+                        android:textColor="@color/white"
+                        android:textSize="@dimen/header_title_size"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="Section Folders • QR Receipt Verification"
+                        android:textColor="@color/primary_container"
+                        android:textSize="@dimen/label_text_size" />
+                </LinearLayout>
+
+                <!-- Sync Status / Manual Sync Button -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnSyncStatusChip"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:ellipsize="end"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="12dp"
+                    android:singleLine="true"
+                    android:text="Local Mode"
+                    android:textSize="11sp"
+                    app:backgroundTint="@color/primary_container"
+                    app:cornerRadius="18dp"
+                    app:icon="@drawable/ic_cloud_off"
+                    app:iconPadding="4dp"
+                    app:iconSize="16dp"
+                    app:iconTint="@color/on_primary_container" />
+            </LinearLayout>
+
+            <!-- Active Private Room Switcher & Members Bar -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnActiveRoomSwitcher"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="0dp"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="6dp"
+                    android:layout_weight="1"
+                    android:ellipsize="end"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:singleLine="true"
+                    android:text="Room: Personal Workspace (OWNER)"
+                    android:textAlignment="viewStart"
+                    android:textSize="11sp"
+                    app:backgroundTint="@color/primary_container"
+                    app:cornerRadius="10dp"
+                    app:icon="@drawable/ic_meeting_room"
+                    app:iconPadding="6dp"
+                    app:iconSize="15dp"
+                    app:iconTint="@color/on_primary_container" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnRoomMembersMain"
+                    style="@style/Widget.Material3.Button.TonalButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="36dp"
+                    android:layout_marginEnd="4dp"
+                    android:ellipsize="end"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:maxLines="1"
+                    android:minWidth="0dp"
+                    android:paddingHorizontal="10dp"
+                    android:singleLine="true"
+                    android:text="Members"
+                    android:textSize="11sp"
+                    app:backgroundTint="@color/primary_container"
+                    app:cornerRadius="10dp"
+                    app:icon="@drawable/ic_group"
+                    app:iconPadding="4dp"
+                    app:iconSize="15dp"
+                    app:iconTint="@color/on_primary_container" />
+
+                <ImageButton
+                    android:id="@+id/btnUserProfileMain"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="Officer Account"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_person"
+                    app:tint="@color/white" />
+            </LinearLayout>
+
+            <!-- Quick Action Toolbar Card (No Financial Figures) -->
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                app:cardBackgroundColor="@color/card_surface"
+                app:cardCornerRadius="@dimen/card_corner_radius"
+                app:cardElevation="0dp"
+                app:strokeWidth="0dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="10dp">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnVerifyQrMain"
+                        style="@style/Widget.Material3.Button"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_marginEnd="5dp"
+                        android:layout_weight="1.15"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:singleLine="true"
+                        android:text="@string/verify_qr"
+                        android:textSize="12sp"
+                        app:backgroundTint="@color/primary"
+                        app:cornerRadius="10dp"
+                        app:icon="@drawable/ic_qr_code_scanner"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="16dp"
+                        app:iconTint="@color/white" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnOpenAuditLogMain"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_marginHorizontal="3dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:singleLine="true"
+                        android:text="@string/audit_log"
+                        android:textSize="12sp"
+                        app:cornerRadius="10dp"
+                        app:icon="@drawable/ic_history"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="15dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnBackupRestoreMain"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="44dp"
+                        android:layout_marginStart="5dp"
+                        android:layout_weight="1"
+                        android:ellipsize="end"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:maxLines="1"
+                        android:minWidth="0dp"
+                        android:paddingHorizontal="10dp"
+                        android:singleLine="true"
+                        android:text="Backup"
+                        android:textSize="12sp"
+                        app:cornerRadius="10dp"
+                        app:icon="@drawable/ic_backup"
+                        app:iconGravity="textStart"
+                        app:iconPadding="4dp"
+                        app:iconSize="15dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+
+        <!-- Section Header Label -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="@dimen/screen_outer_margin"
+            android:paddingTop="14dp"
+            android:paddingBottom="6dp">
+
+            <ImageView
+                android:layout_width="20dp"
+                android:layout_height="20dp"
+                android:contentDescription="Folders"
+                android:src="@drawable/ic_folder"
+                app:tint="@color/primary" />
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Main Section Folders"
+                android:textColor="@color/text_primary"
+                android:textSize="@dimen/card_title_size"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tvSectionCountBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0 Folders"
+                android:textColor="@color/text_secondary"
+                android:textSize="@dimen/label_text_size" />
+        </LinearLayout>
+
+        <!-- Section Folders Grid & Empty State -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1">
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/rvSections"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:clipToPadding="false"
+                android:paddingHorizontal="@dimen/screen_outer_margin"
+                android:paddingTop="4dp"
+                android:paddingBottom="96dp" />
+
+            <LinearLayout
+                android:id="@+id/layoutEmptySections"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="32dp"
+                android:visibility="gone">
+
+                <ImageView
+                    android:layout_width="64dp"
+                    android:layout_height="64dp"
+                    android:contentDescription="No section folders"
+                    android:src="@drawable/ic_create_new_folder"
+                    app:tint="@color/primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="No Section Folders Yet"
+                    android:textColor="@color/text_primary"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center"
+                    android:text="Create a Main Section Folder (e.g., BSCS 3A or Grade 12 - Rizal). You can also organize nested Sub-Folders (e.g., Event T-Shirt, Org Fee) inside any folder."
+                    android:textColor="@color/text_secondary"
+                    android:textSize="@dimen/body_text_size" />
+            </LinearLayout>
+        </FrameLayout>
+    </LinearLayout>
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/fabNewSection"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="20dp"
+        android:text="@string/new_section_folder"
+        android:textColor="@color/white"
+        app:backgroundTint="@color/primary"
+        app:icon="@drawable/ic_create_new_folder"
+        app:iconTint="@color/white" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

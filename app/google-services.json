@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "765979199519",
+    "project_id": "trackerpayment-671be",
+    "storage_bucket": "trackerpayment-671be.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:765979199519:android:d19b049d079a3acc5d6d2a",
+        "android_client_info": {
+          "package_name": "com.example.qr_paymentscan_cash_n_online"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB0IQ58KRtNfGrpWJU2GCLzGmTkizPnQb0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

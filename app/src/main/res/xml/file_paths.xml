@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <files-path
+        name="payment_proofs"
+        path="payment_proofs/" />
+    <files-path
+        name="expense_proofs"
+        path="expense_proofs/" />
+    <cache-path
+        name="temp_captures"
+        path="temp_captures/" />
+    <cache-path
+        name="exports"
+        path="exports/" />
+</paths>

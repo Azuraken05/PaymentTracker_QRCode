@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="screen_outer_margin">14dp</dimen>
+    <dimen name="card_spacing">8dp</dimen>
+    <dimen name="card_inner_padding">14dp</dimen>
+    <dimen name="card_corner_radius">14dp</dimen>
+    <dimen name="form_max_width">720dp</dimen>
+    <dimen name="header_title_size">18sp</dimen>
+    <dimen name="card_title_size">15sp</dimen>
+    <dimen name="body_text_size">13sp</dimen>
+    <dimen name="label_text_size">11sp</dimen>
+</resources>
