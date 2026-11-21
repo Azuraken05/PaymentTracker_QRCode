@@ -19,7 +19,7 @@ service cloud.firestore {
           && memberDoc(roomId).data.status == 'ACTIVE';
     }
 
-    // Helper: True if caller is the ACTIVE Room OWNER
+    // Helper: True if caller is the Room OWNER (verified via rooms/{roomId}.ownerUserId or ACTIVE OWNER member doc)
     function isRoomOwner(roomId) {
       return isSignedIn()
           && (
@@ -38,33 +38,50 @@ service cloud.firestore {
 
     // 1. Private Rooms Collection
     match /rooms/{roomId} {
-      // Authenticated users can query room metadata by roomKey to initiate a join request
+      // Any signed-in user can read/query rooms (to look up a room by roomKey)
       allow read: if isSignedIn();
       allow create: if isSignedIn();
       allow update, delete: if isRoomOwner(roomId);
 
-      // 1a. Isolated Cryptographic Secrets (PBKDF2 hash, salt, 256-bit HMAC signing secret)
+      // 1a. Room Credential & Security Document (readable by signed-in users to verify password before joining; writable by Owner)
       match /private/{docId} {
-        allow read: if isActiveMember(roomId) || isRoomOwner(roomId);
+        allow read: if isSignedIn();
         allow write: if isRoomOwner(roomId);
       }
 
       // 1b. Room Members & Waiting Room Approval Gate
-      match /members/{memberId} {
-        allow read: if isSignedIn() && (request.auth.uid == memberId || isActiveMember(roomId) || isRoomOwner(roomId));
+      match /members/{userId} {
+        // Room Owner, ACTIVE members, or the member themselves can read
+        allow read: if isSignedIn()
+            && (request.auth.uid == userId || isActiveMember(roomId) || isRoomOwner(roomId));
 
-        // New joiners can create ONLY their own member entry (as PENDING_APPROVAL or ACTIVE when owner)
-        // and cannot self-promote to OWNER or bypass a BANNED status.
+        // Any signed-in user can create or update their own join request as COLLECTOR (PENDING_APPROVAL or ACTIVE)
+        // as long as they are not currently BANNED; Room Owner can create or update any member document.
         allow create: if isSignedIn()
-            && request.auth.uid == memberId
             && (
               isRoomOwner(roomId)
-              || (request.resource.data.role != 'OWNER'
-                  && (request.resource.data.status == 'PENDING_APPROVAL' || request.resource.data.status == 'ACTIVE'))
+              || (
+                request.auth.uid == userId
+                && request.resource.data.userId == request.auth.uid
+                && request.resource.data.role == 'COLLECTOR'
+                && (request.resource.data.status == 'PENDING_APPROVAL' || request.resource.data.status == 'ACTIVE')
+              )
             );
 
-        // Only the Room OWNER can approve pending members, change roles, or ban/remove members
-        allow update, delete: if isRoomOwner(roomId);
+        allow update: if isSignedIn()
+            && (
+              isRoomOwner(roomId)
+              || (
+                request.auth.uid == userId
+                && request.resource.data.userId == request.auth.uid
+                && resource.data.status != 'BANNED'
+                && request.resource.data.role == 'COLLECTOR'
+                && (request.resource.data.status == 'PENDING_APPROVAL' || request.resource.data.status == 'ACTIVE')
+              )
+            );
+
+        // Only the Room Owner can delete/reject member documents
+        allow delete: if isRoomOwner(roomId);
       }
 
       // 1c. Section Folders & Nested Sub-Folders

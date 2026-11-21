@@ -16,55 +16,129 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
+        android:orientation="vertical"
         android:padding="14dp">
 
-        <ImageView
-            android:layout_width="28dp"
-            android:layout_height="28dp"
-            android:src="@drawable/ic_person"
-            app:tint="@color/brand_primary" />
-
         <LinearLayout
-            android:layout_width="0dp"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:layout_weight="1"
-            android:orientation="vertical">
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <ImageView
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:contentDescription="Member"
+                android:src="@drawable/ic_person"
+                app:tint="@color/brand_primary" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:id="@+id/tvMemberName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Maria Santos"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvMemberEmailAndDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="maria@school.edu"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+            </LinearLayout>
 
             <TextView
-                android:id="@+id/tvMemberName"
+                android:id="@+id/tvMemberRoleBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Maria Santos"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp"
+                android:background="@drawable/bg_badge_pill"
+                android:backgroundTint="#E8F0FE"
+                android:paddingStart="10dp"
+                android:paddingTop="4dp"
+                android:paddingEnd="10dp"
+                android:paddingBottom="4dp"
+                android:text="OWNER"
+                android:textColor="@color/brand_primary_dark"
+                android:textSize="11sp"
                 android:textStyle="bold" />
-
-            <TextView
-                android:id="@+id/tvMemberEmailAndDate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="2dp"
-                android:text="maria@school.edu"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvMemberRoleBadge"
-            android:layout_width="wrap_content"
+        <!-- Action Buttons for Pending Join Requests (Visible for PENDING_APPROVAL when viewer is Owner) -->
+        <LinearLayout
+            android:id="@+id/layoutPendingMemberActions"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:background="@drawable/bg_badge_pill"
-            android:backgroundTint="#E8F0FE"
-            android:paddingStart="10dp"
-            android:paddingTop="4dp"
-            android:paddingEnd="10dp"
-            android:paddingBottom="4dp"
-            android:text="OWNER"
-            android:textColor="@color/brand_primary_dark"
-            android:textSize="11sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="10dp"
+            android:gravity="end"
+            android:orientation="horizontal"
+            android:visibility="gone">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnApprovePendingMember"
+                style="@style/Widget.Material3.Button"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_marginEnd="4dp"
+                android:layout_weight="1.2"
+                android:backgroundTint="@color/status_paid_green"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:text="Approve"
+                android:textAllCaps="false"
+                android:textColor="@color/white"
+                android:textSize="12sp"
+                app:cornerRadius="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnRejectPendingMember"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_marginHorizontal="4dp"
+                android:layout_weight="1"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:text="Reject"
+                android:textAllCaps="false"
+                android:textColor="@color/text_primary"
+                android:textSize="12sp"
+                app:cornerRadius="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBanPendingMember"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="0dp"
+                android:layout_height="38dp"
+                android:layout_marginStart="4dp"
+                android:layout_weight="0.9"
+                android:backgroundTint="#FEE2E2"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minWidth="0dp"
+                android:paddingHorizontal="8dp"
+                android:singleLine="true"
+                android:text="Ban"
+                android:textAllCaps="false"
+                android:textColor="#B91C1C"
+                android:textSize="12sp"
+                app:cornerRadius="8dp" />
+        </LinearLayout>
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

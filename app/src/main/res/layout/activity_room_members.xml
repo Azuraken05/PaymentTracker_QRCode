@@ -73,7 +73,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginStart="16dp"
-        android:layout_marginTop="14dp"
+        android:layout_marginTop="12dp"
         android:layout_marginEnd="16dp"
         app:cardBackgroundColor="@color/white"
         app:cardCornerRadius="16dp"
@@ -85,7 +85,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="14dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -96,6 +96,7 @@
                 <ImageView
                     android:layout_width="24dp"
                     android:layout_height="24dp"
+                    android:contentDescription="Room Key"
                     android:src="@drawable/ic_vpn_key"
                     app:tint="@color/brand_primary" />
 
@@ -151,22 +152,70 @@
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
+                android:layout_marginTop="6dp"
                 android:text="Share this Room Key and the Room Password with trusted class officers or auditors. Owner can tap 'Security' above to lock the room, set invite key expiration, or rotate keys."
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- Role Permissions Legend -->
+    <!-- Prominent Pending Join Requests Section (Visible whenever any member has status == PENDING_APPROVAL) -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/cardPendingJoinRequestsSection"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="10dp"
+        android:layout_marginEnd="16dp"
+        android:visibility="gone"
+        app:cardBackgroundColor="#FFFBEB"
+        app:cardCornerRadius="16dp"
+        app:cardElevation="2dp"
+        app:strokeColor="#F59E0B"
+        app:strokeWidth="1.5dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="14dp">
+
+            <TextView
+                android:id="@+id/tvPendingRequestsHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Pending Join Requests (0)"
+                android:textColor="#B45309"
+                android:textSize="14sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Verify officer identity and device before approving access to room folders and receipts."
+                android:textColor="#92400E"
+                android:textSize="11sp" />
+
+            <LinearLayout
+                android:id="@+id/layoutPendingRequestsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:orientation="vertical" />
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Active & Joined Members Section Header -->
     <TextView
+        android:id="@+id/tvRoomMembersSectionLabel"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:paddingStart="18dp"
         android:paddingTop="12dp"
         android:paddingEnd="18dp"
         android:paddingBottom="6dp"
-        android:text="Pending &amp; Joined Members (Owner can tap a member to Approve, Ban, or Change Role)"
+        android:text="Room Members (Owner can tap a member to Change Role, Remove, or Ban)"
         android:textColor="@color/text_secondary"
         android:textSize="12sp"
         android:textStyle="bold" />

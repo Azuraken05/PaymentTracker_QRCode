@@ -31,11 +31,6 @@ public final class UserSessionManager {
     private static final String KEY_ACTIVE_ROOM_STATUS = "active_room_member_status";
     private static final String KEY_ACTIVE_ROOM_SECRET = "active_room_signing_secret";
 
-    private static final String KEY_FAILED_JOIN_COUNT = "failed_join_count";
-    private static final String KEY_JOIN_LOCKOUT_UNTIL = "join_lockout_until";
-    private static final int MAX_FAILED_JOIN_ATTEMPTS = 5;
-    private static final long JOIN_LOCKOUT_DURATION_MS = 15L * 60L * 1000L; // 15 minutes
-
     private static volatile UserSessionManager INSTANCE;
     private final SharedPreferences prefs;
 
@@ -293,32 +288,6 @@ public final class UserSessionManager {
      */
     public synchronized boolean canVoidOrDeleteOrManageMembers() {
         return isOwner();
-    }
-
-    public synchronized long getRemainingJoinLockoutMillis() {
-        long lockoutUntil = prefs.getLong(KEY_JOIN_LOCKOUT_UNTIL, 0L);
-        long now = System.currentTimeMillis();
-        if (lockoutUntil > now) {
-            return lockoutUntil - now;
-        }
-        return 0L;
-    }
-
-    public synchronized void recordFailedJoinAttempt() {
-        int count = prefs.getInt(KEY_FAILED_JOIN_COUNT, 0) + 1;
-        SharedPreferences.Editor editor = prefs.edit().putInt(KEY_FAILED_JOIN_COUNT, count);
-        if (count >= MAX_FAILED_JOIN_ATTEMPTS) {
-            editor.putLong(KEY_JOIN_LOCKOUT_UNTIL, System.currentTimeMillis() + JOIN_LOCKOUT_DURATION_MS);
-            editor.putInt(KEY_FAILED_JOIN_COUNT, 0);
-        }
-        editor.apply();
-    }
-
-    public synchronized void resetFailedJoinAttempts() {
-        prefs.edit()
-                .putInt(KEY_FAILED_JOIN_COUNT, 0)
-                .putLong(KEY_JOIN_LOCKOUT_UNTIL, 0L)
-                .apply();
     }
 
     public synchronized void signOut() {

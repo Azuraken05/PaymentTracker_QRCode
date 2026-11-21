@@ -13,19 +13,23 @@ import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
 import com.example.qr_paymentscan_cash_n_online.data.SectionEntity;
 import com.example.qr_paymentscan_cash_n_online.util.DuplicatePaymentGuard;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
-import com.google.firebase.firestore.DocumentChange;
+import com.google.firebase.auth.FirebaseAuth;
+import com.google.firebase.auth.FirebaseUser;
 import com.google.firebase.firestore.DocumentSnapshot;
 import com.google.firebase.firestore.FirebaseFirestore;
 import com.google.firebase.firestore.ListenerRegistration;
+import com.google.firebase.firestore.QuerySnapshot;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Manages live Firestore addSnapshotListeners scoped to the active Private Room (rooms/{roomId})
  * so multi-device treasurers, collectors, and auditors see folder creations, renames, payments,
- * expenses, void actions, member role/approval changes, and instant session revocations in real time
- * while maintaining offline-first Room SQLite persistence.
+ * expenses, void actions, pending join requests, member role/approval changes, and instant
+ * session revocations in real time while maintaining offline-first Room SQLite persistence.
  */
 public final class FirestoreRealtimeSyncManager {
 
@@ -77,6 +81,9 @@ public final class FirestoreRealtimeSyncManager {
         try {
             FirebaseFirestore firestore = FirebaseFirestore.getInstance();
             AppDatabase db = AppDatabase.getInstance(appContext);
+            UserSessionManager session = UserSessionManager.getInstance(appContext);
+            session.syncFromFirebaseAuthIfAvailable();
+            String currentUserId = resolveCurrentUserId(session);
 
             // 1. Listen to Room metadata (room name, lock state, approval gate, expiration)
             ListenerRegistration roomReg = firestore.collection("rooms")
@@ -102,7 +109,45 @@ public final class FirestoreRealtimeSyncManager {
                     });
             activeRegistrations.add(privateSecReg);
 
-            // 2. Listen to Room Members (roles, PENDING_APPROVAL, ACTIVE, BANNED, and instant kick revocation)
+            // 2a. Listen directly to current user's own member document (works even while PENDING_APPROVAL)
+            if (currentUserId != null && !currentUserId.isEmpty()) {
+                ListenerRegistration selfMemberReg = firestore.collection("rooms")
+                        .document(roomId)
+                        .collection("members")
+                        .document(currentUserId)
+                        .addSnapshotListener((snapshot, error) -> {
+                            if (error != null || snapshot == null) {
+                                return;
+                            }
+                            AppDatabase.DB_EXECUTOR.execute(() -> {
+                                if (!snapshot.exists()) {
+                                    RoomMemberEntity localSelf = db.roomMemberDao().findMemberSync(roomId, currentUserId);
+                                    RoomEntity localRoom = db.roomDao().findByIdSync(roomId);
+                                    boolean isOwner = localRoom != null && currentUserId.equals(localRoom.ownerUserId);
+                                    if (localSelf != null && !isOwner) {
+                                        db.roomMemberDao().deleteMember(roomId, currentUserId);
+                                        handleCurrentUserRevoked(roomId, "Your membership or join request in this room was removed by the Room Owner.");
+                                    }
+                                    return;
+                                }
+                                boolean wasPending = session.isPendingApproval();
+                                applyRemoteMemberSnapshot(db, roomId, snapshot, currentUserId);
+                                String newStatus = snapshot.getString("status");
+                                if (wasPending && RoomMemberEntity.STATUS_ACTIVE.equalsIgnoreCase(newStatus)) {
+                                    // Restart listeners so sections, payments, expenses, and audit_logs stream now that user is ACTIVE
+                                    mainHandler.post(() -> {
+                                        synchronized (FirestoreRealtimeSyncManager.this) {
+                                            listeningRoomId = null;
+                                            startListeningForRoom(roomId);
+                                        }
+                                    });
+                                }
+                            });
+                        });
+                activeRegistrations.add(selfMemberReg);
+            }
+
+            // 2b. Listen to entire Room Members collection (ACTIVE, PENDING_APPROVAL, BANNED, and remote deletions)
             ListenerRegistration membersReg = firestore.collection("rooms")
                     .document(roomId)
                     .collection("members")
@@ -110,21 +155,7 @@ public final class FirestoreRealtimeSyncManager {
                         if (error != null || snapshots == null) {
                             return;
                         }
-                        AppDatabase.DB_EXECUTOR.execute(() -> {
-                            String currentUserId = UserSessionManager.getInstance(appContext).getCurrentUserId();
-                            for (DocumentChange dc : snapshots.getDocumentChanges()) {
-                                DocumentSnapshot doc = dc.getDocument();
-                                String docUserId = safeStr(doc.getString("userId"), doc.getId());
-                                if (dc.getType() == DocumentChange.Type.REMOVED) {
-                                    db.roomMemberDao().deleteMember(roomId, docUserId);
-                                    if (docUserId.equals(currentUserId)) {
-                                        handleCurrentUserRevoked(roomId, "Your membership in this room was removed by the Room Owner.");
-                                    }
-                                } else {
-                                    applyRemoteMemberSnapshot(db, roomId, doc, currentUserId);
-                                }
-                            }
-                        });
+                        syncRemoteMembersSnapshot(roomId, snapshots);
                     });
             activeRegistrations.add(membersReg);
 
@@ -195,6 +226,66 @@ public final class FirestoreRealtimeSyncManager {
         }
     }
 
+    /**
+     * Reconciles a live Firestore QuerySnapshot of rooms/{roomId}/members with local Room SQLite:
+     * 1. Upserts every remote member document (ACTIVE, PENDING_APPROVAL, and BANNED) into local room_members.
+     * 2. Removes local room_members entries that were deleted/rejected remotely.
+     */
+    public void syncRemoteMembersSnapshot(String roomId, QuerySnapshot snapshots) {
+        if (roomId == null || snapshots == null) {
+            return;
+        }
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            try {
+                AppDatabase db = AppDatabase.getInstance(appContext);
+                UserSessionManager session = UserSessionManager.getInstance(appContext);
+                session.syncFromFirebaseAuthIfAvailable();
+                String currentUserId = resolveCurrentUserId(session);
+
+                Set<String> remoteUserIds = new HashSet<>();
+                for (DocumentSnapshot doc : snapshots.getDocuments()) {
+                    if (!doc.exists()) {
+                        continue;
+                    }
+                    String docUserId = safeStr(doc.getString("userId"), doc.getId());
+                    remoteUserIds.add(docUserId);
+                    applyRemoteMemberSnapshot(db, roomId, doc, currentUserId);
+                }
+
+                // Remove any local member rows that were deleted/rejected remotely
+                if (!remoteUserIds.isEmpty()) {
+                    RoomEntity localRoom = db.roomDao().findByIdSync(roomId);
+                    String ownerUserId = localRoom != null ? localRoom.ownerUserId : null;
+                    List<RoomMemberEntity> localMembers = db.roomMemberDao().getMembersByRoomSync(roomId);
+                    for (RoomMemberEntity localMember : localMembers) {
+                        if (!remoteUserIds.contains(localMember.userId)) {
+                            // Keep owner entry if owner doc hasn't synced yet
+                            if (ownerUserId != null && ownerUserId.equals(localMember.userId)) {
+                                continue;
+                            }
+                            db.roomMemberDao().deleteMember(roomId, localMember.userId);
+                            if (localMember.userId.equals(currentUserId)) {
+                                handleCurrentUserRevoked(roomId, "Your membership in this room was removed by the Room Owner.");
+                            }
+                        }
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        });
+    }
+
+    private String resolveCurrentUserId(UserSessionManager session) {
+        try {
+            FirebaseUser fbUser = FirebaseAuth.getInstance().getCurrentUser();
+            if (fbUser != null && !fbUser.getUid().isEmpty()) {
+                return fbUser.getUid();
+            }
+        } catch (Exception ignored) {
+        }
+        return session.getCurrentUserId();
+    }
+
     public synchronized void stopListening() {
         for (ListenerRegistration reg : activeRegistrations) {
             try {
@@ -243,8 +334,6 @@ public final class FirestoreRealtimeSyncManager {
             Boolean approvalVal = doc.getBoolean("requireApproval");
             boolean requireApproval = approvalVal != null ? approvalVal : (existing == null || existing.requireApproval);
             long keyExpiresAt = safeLong(doc.getLong("keyExpiresAt"), existing != null ? existing.keyExpiresAt : 0L);
-            int failedJoinCount = (int) safeLong(doc.getLong("failedJoinCount"), existing != null ? existing.failedJoinCount : 0L);
-            long lockoutUntil = safeLong(doc.getLong("lockoutUntil"), existing != null ? existing.lockoutUntil : 0L);
 
             if (roomKey.isEmpty()) {
                 return;
@@ -263,8 +352,8 @@ public final class FirestoreRealtimeSyncManager {
                     isLocked,
                     requireApproval,
                     keyExpiresAt,
-                    failedJoinCount,
-                    lockoutUntil
+                    0,
+                    0L
             );
             db.roomDao().insertOrReplaceRoom(entity);
 

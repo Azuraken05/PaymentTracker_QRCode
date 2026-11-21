@@ -27,7 +27,31 @@ public class ExampleUnitTest {
         // Backward compatibility with legacy v3 unsalted SHA-256 room password hash
         String legacyHash = SecuritySignatureHelper.sha256Hex("123456");
         assertTrue(RoomSecurityHelper.verifyRoomPassword("123456", legacyHash, null));
+        assertTrue(RoomSecurityHelper.verifyRoomPassword("123456", legacyHash, ""));
         assertFalse(RoomSecurityHelper.verifyRoomPassword("654321", legacyHash, ""));
+
+        // Fallback verification: checks private/security first, then parent room credentials
+        assertTrue(RoomSecurityHelper.verifyRoomPasswordWithFallback(
+                "Treasurer2026",
+                hash1,
+                salt1,
+                legacyHash,
+                ""
+        ));
+        assertTrue(RoomSecurityHelper.verifyRoomPasswordWithFallback(
+                "123456",
+                null,
+                null,
+                legacyHash,
+                ""
+        ));
+        assertFalse(RoomSecurityHelper.verifyRoomPasswordWithFallback(
+                "WrongPass",
+                hash1,
+                salt1,
+                legacyHash,
+                ""
+        ));
     }
 
     @Test

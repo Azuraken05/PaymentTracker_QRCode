@@ -148,12 +148,16 @@ public class PaymentRepository {
                             now
                     );
                     roomMemberDao.insertOrReplaceMember(ownerMember);
-                    sessionManager.setActiveRoom(activeRoom, RoomMemberEntity.ROLE_OWNER);
+                    sessionManager.setActiveRoom(activeRoom, RoomMemberEntity.ROLE_OWNER, RoomMemberEntity.STATUS_ACTIVE);
                 } else {
                     RoomMemberEntity existingMember = roomMemberDao.findMemberSync(activeRoom.roomId, userId);
                     String role;
+                    String memberStatus;
                     if (existingMember != null) {
                         role = existingMember.role;
+                        memberStatus = (existingMember.status != null && !existingMember.status.trim().isEmpty())
+                                ? existingMember.status
+                                : RoomMemberEntity.STATUS_ACTIVE;
                         if (!userName.equals(existingMember.userName)) {
                             roomMemberDao.updateMemberDisplayName(userId, userName);
                         }
@@ -161,6 +165,7 @@ public class PaymentRepository {
                         role = userId.equals(activeRoom.ownerUserId)
                                 ? RoomMemberEntity.ROLE_OWNER
                                 : RoomMemberEntity.ROLE_COLLECTOR;
+                        memberStatus = RoomMemberEntity.STATUS_ACTIVE;
                         roomMemberDao.insertOrReplaceMember(new RoomMemberEntity(
                                 activeRoom.roomId,
                                 userId,
@@ -170,7 +175,7 @@ public class PaymentRepository {
                                 now
                         ));
                     }
-                    sessionManager.setActiveRoom(activeRoom, role);
+                    sessionManager.setActiveRoom(activeRoom, role, memberStatus);
                 }
 
                 // Auto-claim any pre-update records where room_id IS NULL into this active room
@@ -246,6 +251,7 @@ public class PaymentRepository {
                     return;
                 }
 
+                sessionManager.syncFromFirebaseAuthIfAvailable();
                 sessionManager.ensureLocalFallbackUserIfNeeded();
                 String userId = sessionManager.getCurrentUserId();
                 String userName = sessionManager.getCurrentUserName();
@@ -277,6 +283,7 @@ public class PaymentRepository {
                 );
                 roomDao.insertOrReplaceRoom(room);
 
+                String deviceInfo = RoomSecurityHelper.getDeviceInfo();
                 RoomMemberEntity ownerMember = new RoomMemberEntity(
                         roomId,
                         userId,
@@ -285,7 +292,7 @@ public class PaymentRepository {
                         RoomMemberEntity.ROLE_OWNER,
                         now,
                         RoomMemberEntity.STATUS_ACTIVE,
-                        RoomSecurityHelper.getDeviceInfo()
+                        deviceInfo
                 );
                 roomMemberDao.insertOrReplaceMember(ownerMember);
                 sessionManager.setActiveRoom(room, RoomMemberEntity.ROLE_OWNER, RoomMemberEntity.STATUS_ACTIVE);
@@ -300,6 +307,54 @@ public class PaymentRepository {
                         now
                 );
 
+                // Push newly created room, private/security, and owner membership immediately when online
+                if (FirebaseSyncManager.isFirebaseConfigured(appContext)
+                        && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                    try {
+                        FirebaseFirestore firestore = FirebaseFirestore.getInstance();
+                        Map<String, Object> roomDoc = new HashMap<>();
+                        roomDoc.put("roomId", room.roomId);
+                        roomDoc.put("roomName", room.roomName);
+                        roomDoc.put("roomKey", room.roomKey);
+                        roomDoc.put("roomPasswordHash", room.roomPasswordHash);
+                        roomDoc.put("roomSalt", room.roomSalt != null ? room.roomSalt : "");
+                        roomDoc.put("roomSigningSecret", room.roomSigningSecret);
+                        roomDoc.put("ownerUserId", room.ownerUserId);
+                        roomDoc.put("ownerName", room.ownerName);
+                        roomDoc.put("isLocked", room.isLocked);
+                        roomDoc.put("requireApproval", room.requireApproval);
+                        roomDoc.put("keyExpiresAt", room.keyExpiresAt);
+                        roomDoc.put("failedJoinCount", 0);
+                        roomDoc.put("lockoutUntil", 0L);
+                        roomDoc.put("createdAt", room.createdAt);
+                        roomDoc.put("updatedAt", room.updatedAt);
+                        firestore.collection("rooms").document(roomId).set(roomDoc, SetOptions.merge());
+
+                        Map<String, Object> securityDoc = new HashMap<>();
+                        securityDoc.put("roomPasswordHash", room.roomPasswordHash);
+                        securityDoc.put("roomSalt", room.roomSalt != null ? room.roomSalt : "");
+                        securityDoc.put("roomSigningSecret", room.roomSigningSecret);
+                        securityDoc.put("updatedAt", room.updatedAt);
+                        firestore.collection("rooms").document(roomId)
+                                .collection("private").document("security")
+                                .set(securityDoc, SetOptions.merge());
+
+                        Map<String, Object> memberDoc = new HashMap<>();
+                        memberDoc.put("roomId", roomId);
+                        memberDoc.put("userId", userId);
+                        memberDoc.put("userName", userName);
+                        memberDoc.put("userEmail", userEmail);
+                        memberDoc.put("role", RoomMemberEntity.ROLE_OWNER);
+                        memberDoc.put("status", RoomMemberEntity.STATUS_ACTIVE);
+                        memberDoc.put("deviceInfo", deviceInfo);
+                        memberDoc.put("joinedAt", now);
+                        firestore.collection("rooms").document(roomId)
+                                .collection("members").document(userId)
+                                .set(memberDoc, SetOptions.merge());
+                    } catch (Exception ignored) {
+                    }
+                }
+
                 FirestoreRealtimeSyncManager.getInstance(appContext).startListeningForRoom(roomId);
                 FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
                 postSuccess(callback, room);
@@ -307,6 +362,104 @@ public class PaymentRepository {
                 postError(callback, "Failed to create room: " + e.getMessage());
             }
         });
+    }
+
+    /**
+     * Saves a verified joined room and member record into local Room SQLite after Firestore
+     * confirms the member document write, and updates the active room session.
+     */
+    public void saveJoinedRoomAndMemberLocally(
+            RoomEntity matchedRoom,
+            RoomMemberEntity member,
+            ResultCallback<RoomEntity> callback
+    ) {
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            try {
+                matchedRoom.failedJoinCount = 0;
+                matchedRoom.lockoutUntil = 0L;
+                roomDao.insertOrReplaceRoom(matchedRoom);
+
+                RoomMemberEntity existingMember = roomMemberDao.findMemberSync(matchedRoom.roomId, member.userId);
+                if (existingMember != null) {
+                    member.id = existingMember.id;
+                }
+                roomMemberDao.insertOrReplaceMember(member);
+                sessionManager.setActiveRoom(matchedRoom, member.role, member.status);
+
+                long now = System.currentTimeMillis();
+                String joinLogMsg = RoomMemberEntity.STATUS_PENDING_APPROVAL.equalsIgnoreCase(member.status)
+                        ? member.userName + " (" + member.userEmail + ", " + member.deviceInfo + ") requested to join room \""
+                        + matchedRoom.roomName + "\" — Waiting for Owner Approval."
+                        : member.userName + " (" + member.deviceInfo + ") joined Private Room \"" + matchedRoom.roomName + "\" as " + member.role;
+
+                insertAttributedAuditLogSync(
+                        AuditLogEntity.ACTION_MEMBER_JOINED,
+                        null,
+                        matchedRoom.roomName,
+                        null,
+                        joinLogMsg,
+                        now
+                );
+
+                FirestoreRealtimeSyncManager.getInstance(appContext).startListeningForRoom(matchedRoom.roomId);
+                FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
+                postSuccess(callback, matchedRoom);
+            } catch (Exception e) {
+                postError(callback, "Failed to save room locally: " + e.getMessage());
+            }
+        });
+    }
+
+    /**
+     * Updates local Room SQLite and active session immediately when a PENDING_APPROVAL joiner
+     * is approved by the Room Owner in real time.
+     */
+    public void activateApprovedMembershipLocally(
+            String roomId,
+            String userId,
+            String approvedRole,
+            String remoteSigningSecret,
+            ResultCallback<RoomEntity> callback
+    ) {
+        AppDatabase.DB_EXECUTOR.execute(() -> {
+            try {
+                String safeRole = (approvedRole != null && !approvedRole.trim().isEmpty())
+                        ? approvedRole.trim().toUpperCase(Locale.US)
+                        : RoomMemberEntity.ROLE_COLLECTOR;
+                roomMemberDao.updateMemberStatusAndRole(roomId, userId, RoomMemberEntity.STATUS_ACTIVE, safeRole);
+
+                RoomEntity room = roomDao.findByIdSync(roomId);
+                if (room != null) {
+                    if (remoteSigningSecret != null && !remoteSigningSecret.trim().isEmpty()) {
+                        room.roomSigningSecret = remoteSigningSecret.trim();
+                        roomDao.insertOrReplaceRoom(room);
+                    }
+                    sessionManager.setActiveRoom(room, safeRole, RoomMemberEntity.STATUS_ACTIVE);
+                } else {
+                    sessionManager.updateActiveRoomRole(safeRole);
+                    sessionManager.updateActiveRoomMemberStatus(RoomMemberEntity.STATUS_ACTIVE, remoteSigningSecret);
+                }
+                FirestoreRealtimeSyncManager.getInstance(appContext).stopListening();
+                FirestoreRealtimeSyncManager.getInstance(appContext).startListeningForRoom(roomId);
+                postSuccess(callback, room);
+            } catch (Exception e) {
+                postError(callback, "Failed to activate approved room membership: " + e.getMessage());
+            }
+        });
+    }
+
+    public RoomEntity findLocalRoomByKeySync(String roomKey) {
+        if (roomKey == null || roomKey.trim().isEmpty()) {
+            return null;
+        }
+        return roomDao.findByKeySync(roomKey.trim().toUpperCase(Locale.US));
+    }
+
+    public RoomMemberEntity findLocalMemberSync(String roomId, String userId) {
+        if (roomId == null || userId == null) {
+            return null;
+        }
+        return roomMemberDao.findMemberSync(roomId, userId);
     }
 
     public void joinPrivateRoomWithKeyAndPassword(
@@ -324,20 +477,25 @@ public class PaymentRepository {
                 }
 
                 RoomEntity matchedRoom = roomDao.findByKeySync(cleanKey);
+                String privatePasswordHash = null;
+                String privateSalt = null;
+                String privateSigningSecret = null;
+                String remoteMemberStatus = null;
+                String remoteMemberRole = null;
 
-                long remainingLockout = RoomSecurityHelper.getRemainingLockoutMillis(
-                        appContext,
-                        cleanKey,
-                        matchedRoom != null ? matchedRoom.lockoutUntil : 0L
-                );
-                if (remainingLockout > 0L) {
-                    postError(callback, RoomSecurityHelper.formatLockoutCountdown(remainingLockout));
-                    return;
-                }
+                sessionManager.syncFromFirebaseAuthIfAvailable();
+                sessionManager.ensureLocalFallbackUserIfNeeded();
+                String userId = sessionManager.getCurrentUserId();
+                String userName = sessionManager.getCurrentUserName();
+                String userEmail = sessionManager.getCurrentUserEmail();
+                String deviceInfo = RoomSecurityHelper.getDeviceInfo();
+                long now = System.currentTimeMillis();
 
-                // Query Firestore if not cached locally or if online
-                if (FirebaseSyncManager.isFirebaseConfigured(appContext)
-                        && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                boolean online = FirebaseSyncManager.isFirebaseConfigured(appContext)
+                        && FirebaseSyncManager.isNetworkConnected(appContext);
+
+                // Query Firestore by roomKey and also inspect rooms/{roomId}/private/security
+                if (online) {
                     try {
                         FirebaseFirestore firestore = FirebaseFirestore.getInstance();
                         QuerySnapshot query = Tasks.await(
@@ -364,165 +522,171 @@ public class PaymentRepository {
                             Boolean rLocked = doc.getBoolean("isLocked");
                             Boolean rApproval = doc.getBoolean("requireApproval");
                             Long rExpires = doc.getLong("keyExpiresAt");
-                            Long rFailCount = doc.getLong("failedJoinCount");
-                            Long rLockoutUntil = doc.getLong("lockoutUntil");
                             Long cAt = doc.getLong("createdAt");
                             Long uAt = doc.getLong("updatedAt");
-                            long now = System.currentTimeMillis();
+
+                            try {
+                                DocumentSnapshot secDoc = Tasks.await(
+                                        firestore.collection("rooms")
+                                                .document(rId)
+                                                .collection("private")
+                                                .document("security")
+                                                .get(),
+                                        8,
+                                        TimeUnit.SECONDS
+                                );
+                                if (secDoc != null && secDoc.exists()) {
+                                    privatePasswordHash = secDoc.getString("roomPasswordHash");
+                                    privateSalt = secDoc.getString("roomSalt");
+                                    privateSigningSecret = secDoc.getString("roomSigningSecret");
+                                }
+                            } catch (Exception ignored) {
+                            }
+
+                            try {
+                                DocumentSnapshot memDoc = Tasks.await(
+                                        firestore.collection("rooms")
+                                                .document(rId)
+                                                .collection("members")
+                                                .document(userId)
+                                                .get(),
+                                        8,
+                                        TimeUnit.SECONDS
+                                );
+                                if (memDoc != null && memDoc.exists()) {
+                                    remoteMemberStatus = memDoc.getString("status");
+                                    remoteMemberRole = memDoc.getString("role");
+                                }
+                            } catch (Exception ignored) {
+                            }
+
+                            String effectiveHash = (privatePasswordHash != null && !privatePasswordHash.trim().isEmpty())
+                                    ? privatePasswordHash
+                                    : (rPassHash != null ? rPassHash : "");
+                            String effectiveSalt = (privatePasswordHash != null && !privatePasswordHash.trim().isEmpty())
+                                    ? privateSalt
+                                    : rSalt;
+                            String effectiveSecret = (privateSigningSecret != null && !privateSigningSecret.trim().isEmpty())
+                                    ? privateSigningSecret
+                                    : (rSecret != null ? rSecret : SecuritySignatureHelper.getOrCreateSecretKey(appContext));
+
                             matchedRoom = new RoomEntity(
                                     rId,
                                     rName != null ? rName : "Shared Room",
                                     rKey != null ? rKey : cleanKey,
-                                    rPassHash != null ? rPassHash : "",
-                                    rSecret != null ? rSecret : SecuritySignatureHelper.getOrCreateSecretKey(appContext),
+                                    effectiveHash,
+                                    effectiveSecret,
                                     rOwnerId != null ? rOwnerId : "",
                                     rOwnerName != null ? rOwnerName : "Owner",
                                     cAt != null ? cAt : now,
                                     uAt != null ? uAt : now,
-                                    rSalt,
+                                    effectiveSalt,
                                     rLocked != null && rLocked,
                                     rApproval == null || rApproval,
                                     rExpires != null ? rExpires : 0L,
-                                    rFailCount != null ? rFailCount.intValue() : 0,
-                                    rLockoutUntil != null ? rLockoutUntil : 0L
+                                    0,
+                                    0L
                             );
+                            // Verify against both private/security and parent rooms/{roomId} fields
+                            if (!RoomSecurityHelper.verifyRoomPasswordWithFallback(
+                                    cleanPass,
+                                    privatePasswordHash,
+                                    privateSalt,
+                                    rPassHash,
+                                    rSalt
+                            )) {
+                                postError(callback, "Invalid Room Key or Password. Please try again.");
+                                return;
+                            }
                         }
                     } catch (Exception ignored) {
                     }
                 }
 
-                sessionManager.ensureLocalFallbackUserIfNeeded();
-                String userId = sessionManager.getCurrentUserId();
-                String userName = sessionManager.getCurrentUserName();
-                String userEmail = sessionManager.getCurrentUserEmail();
-                String deviceInfo = RoomSecurityHelper.getDeviceInfo();
-                long now = System.currentTimeMillis();
-
                 if (matchedRoom == null) {
-                    int fails = RoomSecurityHelper.recordFailedJoinAttempt(appContext, cleanKey);
-                    if (fails >= RoomSecurityHelper.MAX_FAILED_JOIN_ATTEMPTS) {
-                        insertAttributedAuditLogSync(
-                                AuditLogEntity.ACTION_SECURITY_BRUTE_FORCE_ALERT,
-                                null,
-                                cleanKey,
-                                null,
-                                "Brute-force lockout triggered on Room Key " + cleanKey + " after " + fails
-                                        + " failed attempts by " + userName + " (" + userEmail + ") on " + deviceInfo,
-                                now
-                        );
-                        FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
-                        long rem = RoomSecurityHelper.getRemainingLockoutMillis(appContext, cleanKey, 0L);
-                        postError(callback, RoomSecurityHelper.formatLockoutCountdown(rem));
-                        return;
-                    }
-                    postError(callback, "Invalid Room Key or Password (" + (RoomSecurityHelper.MAX_FAILED_JOIN_ATTEMPTS - fails) + " attempts remaining).");
+                    postError(callback, "Invalid Room Key or Password. Please try again.");
                     return;
                 }
 
-                // Re-check lockout with remote lockoutUntil
-                remainingLockout = RoomSecurityHelper.getRemainingLockoutMillis(appContext, cleanKey, matchedRoom.lockoutUntil);
-                if (remainingLockout > 0L) {
-                    postError(callback, RoomSecurityHelper.formatLockoutCountdown(remainingLockout));
-                    return;
-                }
-
-                boolean isOwnerAccount = userId.equals(matchedRoom.ownerUserId);
-
-                // Check if user is BANNED
-                RoomMemberEntity existingMember = roomMemberDao.findMemberSync(matchedRoom.roomId, userId);
-                if (existingMember != null && existingMember.isBanned() && !isOwnerAccount) {
-                    insertAttributedAuditLogSync(
-                            AuditLogEntity.ACTION_SECURITY_JOIN_DENIED,
-                            null,
-                            matchedRoom.roomName,
-                            null,
-                            "Blocked join attempt by BANNED user " + userName + " (" + userEmail + ") on " + deviceInfo,
-                            now
-                    );
-                    FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
-                    postError(callback, "Access Denied: Your account has been banned from this room by the Owner.");
-                    return;
-                }
-
-                // Check if Room is Locked
-                if (matchedRoom.isLocked && !isOwnerAccount && (existingMember == null || !existingMember.isActive())) {
-                    insertAttributedAuditLogSync(
-                            AuditLogEntity.ACTION_SECURITY_JOIN_DENIED,
-                            null,
-                            matchedRoom.roomName,
-                            null,
-                            "Blocked join attempt by " + userName + " (" + userEmail + "): Room is LOCKED by Owner.",
-                            now
-                    );
-                    FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
-                    postError(callback, "This room is currently LOCKED by the Room Owner. New joins are blocked.");
-                    return;
-                }
-
-                // Check if Room Invite Key has Expired
-                if (matchedRoom.isKeyExpired(now) && !isOwnerAccount && (existingMember == null || !existingMember.isActive())) {
-                    insertAttributedAuditLogSync(
-                            AuditLogEntity.ACTION_SECURITY_JOIN_DENIED,
-                            null,
-                            matchedRoom.roomName,
-                            null,
-                            "Blocked join attempt by " + userName + " (" + userEmail + "): Room Invite Key expired.",
-                            now
-                    );
-                    FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
-                    postError(callback, "This Room Invite Key has expired. Ask the Room Owner to renew or rotate the Room Key.");
-                    return;
-                }
-
-                // Constant-Time Salted PBKDF2 (or legacy SHA-256) Password Verification
-                boolean passwordValid = RoomSecurityHelper.verifyRoomPassword(
+                // Check password against matchedRoom if not already verified above
+                boolean passwordValid = RoomSecurityHelper.verifyRoomPasswordWithFallback(
                         cleanPass,
+                        privatePasswordHash,
+                        privateSalt,
                         matchedRoom.roomPasswordHash,
                         matchedRoom.roomSalt
                 );
                 if (!passwordValid) {
-                    int fails = RoomSecurityHelper.recordFailedJoinAttempt(appContext, cleanKey);
-                    if (fails >= RoomSecurityHelper.MAX_FAILED_JOIN_ATTEMPTS) {
-                        long lockoutUntil = now + RoomSecurityHelper.LOCKOUT_DURATION_MS;
-                        matchedRoom.failedJoinCount = fails;
-                        matchedRoom.lockoutUntil = lockoutUntil;
-                        roomDao.insertOrReplaceRoom(matchedRoom);
-                        insertAttributedAuditLogSync(
-                                AuditLogEntity.ACTION_SECURITY_BRUTE_FORCE_ALERT,
-                                null,
-                                matchedRoom.roomName,
-                                null,
-                                "SECURITY ALERT: 5 consecutive failed password attempts on room \"" + matchedRoom.roomName
-                                        + "\" (" + cleanKey + ") by " + userName + " (" + userEmail + ") on device "
-                                        + deviceInfo + ". 15-minute lockout activated.",
-                                now
-                        );
-                        FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
-                        postError(callback, RoomSecurityHelper.formatLockoutCountdown(RoomSecurityHelper.LOCKOUT_DURATION_MS));
-                        return;
-                    }
-                    postError(callback, "Invalid Room Key or Password (" + (RoomSecurityHelper.MAX_FAILED_JOIN_ATTEMPTS - fails) + " attempts remaining).");
+                    postError(callback, "Invalid Room Key or Password. Please try again.");
                     return;
                 }
 
-                RoomSecurityHelper.clearFailedJoinAttempts(appContext, cleanKey);
-                matchedRoom.failedJoinCount = 0;
-                matchedRoom.lockoutUntil = 0L;
-                roomDao.insertOrReplaceRoom(matchedRoom);
+                boolean isOwnerAccount = userId.equals(matchedRoom.ownerUserId);
+                RoomMemberEntity existingMember = roomMemberDao.findMemberSync(matchedRoom.roomId, userId);
+
+                boolean isBanned = (existingMember != null && existingMember.isBanned())
+                        || RoomMemberEntity.STATUS_BANNED.equalsIgnoreCase(remoteMemberStatus);
+                if (isBanned && !isOwnerAccount) {
+                    postError(callback, "Access Denied: Your account has been banned from this room by the Owner.");
+                    return;
+                }
+
+                boolean alreadyActive = (existingMember != null && existingMember.isActive())
+                        || RoomMemberEntity.STATUS_ACTIVE.equalsIgnoreCase(remoteMemberStatus);
+
+                if (matchedRoom.isLocked && !isOwnerAccount && !alreadyActive) {
+                    postError(callback, "This room is currently LOCKED by the Room Owner. New joins are blocked.");
+                    return;
+                }
+
+                if (matchedRoom.isKeyExpired(now) && !isOwnerAccount && !alreadyActive) {
+                    postError(callback, "This Room Invite Key has expired. Ask the Room Owner to renew or rotate the Room Key.");
+                    return;
+                }
 
                 String assignedRole;
                 String memberStatus;
                 if (isOwnerAccount) {
                     assignedRole = RoomMemberEntity.ROLE_OWNER;
                     memberStatus = RoomMemberEntity.STATUS_ACTIVE;
-                } else if (existingMember != null && existingMember.isActive()) {
-                    assignedRole = existingMember.role;
+                } else if (alreadyActive) {
+                    assignedRole = (remoteMemberRole != null && !remoteMemberRole.isEmpty())
+                            ? remoteMemberRole
+                            : (existingMember != null ? existingMember.role : RoomMemberEntity.ROLE_COLLECTOR);
                     memberStatus = RoomMemberEntity.STATUS_ACTIVE;
                 } else {
-                    assignedRole = existingMember != null ? existingMember.role : RoomMemberEntity.ROLE_COLLECTOR;
+                    assignedRole = RoomMemberEntity.ROLE_COLLECTOR;
                     memberStatus = matchedRoom.requireApproval
                             ? RoomMemberEntity.STATUS_PENDING_APPROVAL
                             : RoomMemberEntity.STATUS_ACTIVE;
+                }
+
+                if (online) {
+                    Map<String, Object> memberMap = new HashMap<>();
+                    memberMap.put("userId", userId);
+                    memberMap.put("userName", userName);
+                    memberMap.put("userEmail", userEmail);
+                    memberMap.put("role", assignedRole);
+                    memberMap.put("status", memberStatus);
+                    memberMap.put("roomId", matchedRoom.roomId);
+                    memberMap.put("joinedAt", now);
+                    memberMap.put("deviceInfo", deviceInfo);
+
+                    try {
+                        Tasks.await(
+                                FirebaseFirestore.getInstance()
+                                        .collection("rooms")
+                                        .document(matchedRoom.roomId)
+                                        .collection("members")
+                                        .document(userId)
+                                        .set(memberMap, SetOptions.merge()),
+                                15,
+                                TimeUnit.SECONDS
+                        );
+                    } catch (Exception writeEx) {
+                        postError(callback, "Failed to submit join request to Firestore: " + writeEx.getMessage());
+                        return;
+                    }
                 }
 
                 RoomMemberEntity member = new RoomMemberEntity(
@@ -531,33 +695,11 @@ public class PaymentRepository {
                         userName,
                         userEmail,
                         assignedRole,
-                        existingMember != null ? existingMember.joinedAt : now,
+                        now,
                         memberStatus,
                         deviceInfo
                 );
-                if (existingMember != null) {
-                    member.id = existingMember.id;
-                }
-                roomMemberDao.insertOrReplaceMember(member);
-                sessionManager.setActiveRoom(matchedRoom, assignedRole, memberStatus);
-
-                String joinLogMsg = RoomMemberEntity.STATUS_PENDING_APPROVAL.equals(memberStatus)
-                        ? userName + " (" + userEmail + ", " + deviceInfo + ") requested to join room \""
-                        + matchedRoom.roomName + "\" — Waiting for Owner Approval."
-                        : userName + " (" + deviceInfo + ") joined Private Room \"" + matchedRoom.roomName + "\" as " + assignedRole;
-
-                insertAttributedAuditLogSync(
-                        AuditLogEntity.ACTION_MEMBER_JOINED,
-                        null,
-                        matchedRoom.roomName,
-                        null,
-                        joinLogMsg,
-                        now
-                );
-
-                FirestoreRealtimeSyncManager.getInstance(appContext).startListeningForRoom(matchedRoom.roomId);
-                FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
-                postSuccess(callback, matchedRoom);
+                saveJoinedRoomAndMemberLocally(matchedRoom, member, callback);
             } catch (Exception e) {
                 postError(callback, "Could not join room: " + e.getMessage());
             }
@@ -611,6 +753,23 @@ public class PaymentRepository {
                         ? assignedRole.trim().toUpperCase(Locale.US)
                         : RoomMemberEntity.ROLE_COLLECTOR;
                 long now = System.currentTimeMillis();
+
+                if (FirebaseSyncManager.isFirebaseConfigured(appContext) && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                    Map<String, Object> update = new HashMap<>();
+                    update.put("status", RoomMemberEntity.STATUS_ACTIVE);
+                    update.put("role", role);
+                    Tasks.await(
+                            FirebaseFirestore.getInstance()
+                                    .collection("rooms")
+                                    .document(roomId)
+                                    .collection("members")
+                                    .document(targetUserId)
+                                    .set(update, SetOptions.merge()),
+                            15,
+                            TimeUnit.SECONDS
+                    );
+                }
+
                 roomMemberDao.updateMemberStatusAndRole(roomId, targetUserId, RoomMemberEntity.STATUS_ACTIVE, role);
 
                 insertAttributedAuditLogSync(
@@ -622,17 +781,6 @@ public class PaymentRepository {
                         now
                 );
 
-                if (FirebaseSyncManager.isFirebaseConfigured(appContext) && FirebaseSyncManager.isNetworkConnected(appContext)) {
-                    Map<String, Object> update = new HashMap<>();
-                    update.put("status", RoomMemberEntity.STATUS_ACTIVE);
-                    update.put("role", role);
-                    FirebaseFirestore.getInstance()
-                            .collection("rooms")
-                            .document(roomId)
-                            .collection("members")
-                            .document(targetUserId)
-                            .set(update, SetOptions.merge());
-                }
                 FirebaseSyncManager.enqueueImmediateSyncIfAvailable(appContext);
                 postSuccess(callback, null);
             } catch (Exception e) {
@@ -660,17 +808,21 @@ public class PaymentRepository {
                 }
                 long now = System.currentTimeMillis();
                 if (banPermanently) {
-                    roomMemberDao.updateMemberStatus(roomId, targetUserId, RoomMemberEntity.STATUS_BANNED);
                     if (FirebaseSyncManager.isFirebaseConfigured(appContext) && FirebaseSyncManager.isNetworkConnected(appContext)) {
                         Map<String, Object> update = new HashMap<>();
                         update.put("status", RoomMemberEntity.STATUS_BANNED);
-                        FirebaseFirestore.getInstance()
-                                .collection("rooms")
-                                .document(roomId)
-                                .collection("members")
-                                .document(targetUserId)
-                                .set(update, SetOptions.merge());
+                        Tasks.await(
+                                FirebaseFirestore.getInstance()
+                                        .collection("rooms")
+                                        .document(roomId)
+                                        .collection("members")
+                                        .document(targetUserId)
+                                        .set(update, SetOptions.merge()),
+                                15,
+                                TimeUnit.SECONDS
+                        );
                     }
+                    roomMemberDao.updateMemberStatus(roomId, targetUserId, RoomMemberEntity.STATUS_BANNED);
                     insertAttributedAuditLogSync(
                             AuditLogEntity.ACTION_SECURITY_MEMBER_BANNED,
                             null,
@@ -680,8 +832,21 @@ public class PaymentRepository {
                             now
                     );
                 } else {
+                    if (FirebaseSyncManager.isFirebaseConfigured(appContext) && FirebaseSyncManager.isNetworkConnected(appContext)) {
+                        Tasks.await(
+                                FirebaseFirestore.getInstance()
+                                        .collection("rooms")
+                                        .document(roomId)
+                                        .collection("members")
+                                        .document(targetUserId)
+                                        .delete(),
+                                15,
+                                TimeUnit.SECONDS
+                        );
+                    } else {
+                        FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "members", targetUserId);
+                    }
                     roomMemberDao.deleteMember(roomId, targetUserId);
-                    FirebaseSyncManager.queueRemoteDeletion(appContext, roomId, "members", targetUserId);
                     insertAttributedAuditLogSync(
                             AuditLogEntity.ACTION_MEMBER_REMOVED,
                             null,

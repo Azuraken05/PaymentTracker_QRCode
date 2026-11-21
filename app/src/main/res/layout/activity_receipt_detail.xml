@@ -432,6 +432,17 @@
                             android:text="Scan via Student QR Payment Tracker to verify cryptographic authenticity"
                             android:textColor="@color/text_secondary"
                             android:textSize="11sp" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center"
+                            android:letterSpacing="0.03"
+                            android:text="@string/trademark_credit"
+                            android:textColor="@color/primary"
+                            android:textSize="10sp"
+                            android:textStyle="bold" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

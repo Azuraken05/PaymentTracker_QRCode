@@ -26,11 +26,17 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.example.qr_paymentscan_cash_n_online.data.PaymentRepository;
 import com.example.qr_paymentscan_cash_n_online.data.RoomEntity;
 import com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity;
+import com.example.qr_paymentscan_cash_n_online.sync.FirebaseSyncManager;
+import com.example.qr_paymentscan_cash_n_online.sync.FirestoreRealtimeSyncManager;
 import com.example.qr_paymentscan_cash_n_online.ui.BaseThemedActivity;
 import com.example.qr_paymentscan_cash_n_online.util.CurrencyFormatter;
 import com.example.qr_paymentscan_cash_n_online.util.UserSessionManager;
 import com.google.android.material.button.MaterialButton;
+import com.google.android.material.card.MaterialCardView;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
+import com.google.firebase.firestore.DocumentSnapshot;
+import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.ListenerRegistration;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -46,8 +52,13 @@ public class RoomMembersActivity extends BaseThemedActivity {
     private TextView tvMembersMyRoleSubtitle;
     private TextView tvInviteRoomKey;
     private TextView tvRoomSecurityStatusBanner;
+    private MaterialCardView cardPendingJoinRequestsSection;
+    private TextView tvPendingRequestsHeader;
+    private LinearLayout layoutPendingRequestsContainer;
     private MaterialButton btnChangeRoomPassword;
     private MembersAdapter adapter;
+
+    private ListenerRegistration liveMembersListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -56,6 +67,7 @@ public class RoomMembersActivity extends BaseThemedActivity {
 
         repository = new PaymentRepository(this);
         sessionManager = UserSessionManager.getInstance(this);
+        sessionManager.syncFromFirebaseAuthIfAvailable();
         activeRoomId = sessionManager.getActiveRoomId();
 
         View root = findViewById(R.id.roomMembersRoot);
@@ -72,6 +84,9 @@ public class RoomMembersActivity extends BaseThemedActivity {
         tvMembersMyRoleSubtitle = findViewById(R.id.tvMembersMyRoleSubtitle);
         tvInviteRoomKey = findViewById(R.id.tvInviteRoomKey);
         tvRoomSecurityStatusBanner = findViewById(R.id.tvRoomSecurityStatusBanner);
+        cardPendingJoinRequestsSection = findViewById(R.id.cardPendingJoinRequestsSection);
+        tvPendingRequestsHeader = findViewById(R.id.tvPendingRequestsHeader);
+        layoutPendingRequestsContainer = findViewById(R.id.layoutPendingRequestsContainer);
         btnChangeRoomPassword = findViewById(R.id.btnChangeRoomPassword);
         MaterialButton btnCopyInviteKey = findViewById(R.id.btnCopyInviteKey);
         RecyclerView rvRoomMembers = findViewById(R.id.rvRoomMembers);
@@ -81,7 +96,12 @@ public class RoomMembersActivity extends BaseThemedActivity {
         btnCopyInviteKey.setOnClickListener(v -> copyAndShareInviteKey());
         btnChangeRoomPassword.setOnClickListener(v -> showSecurityConsoleDialog());
 
-        adapter = new MembersAdapter(this::showMemberRoleActionDialog);
+        adapter = new MembersAdapter(
+                this::showMemberRoleActionDialog,
+                this::showQuickApproveRolePickerDialog,
+                member -> rejectOrBanMember(member, false),
+                member -> rejectOrBanMember(member, true)
+        );
         rvRoomMembers.setLayoutManager(new LinearLayoutManager(this));
         rvRoomMembers.setAdapter(adapter);
 
@@ -91,17 +111,206 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 refreshRoomHeader();
             });
             repository.observeMembersByRoom(activeRoomId).observe(this, members -> {
-                adapter.submitList(members != null ? members : new ArrayList<>());
+                updateMembersUi(members != null ? members : new ArrayList<>());
                 refreshRoomHeader();
             });
         }
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        attachLiveRoomMembersListener();
+    }
+
+    @Override
+    protected void onStop() {
+        detachLiveRoomMembersListener();
+        super.onStop();
+    }
+
+    /**
+     * Attaches a live Firestore addSnapshotListener directly to rooms/{roomId}/members whenever
+     * RoomMembersActivity is open so join requests submitted from another device appear in real time
+     * and are immediately upserted/reconciled into local Room SQLite.
+     */
+    private void attachLiveRoomMembersListener() {
+        if (activeRoomId == null || activeRoomId.trim().isEmpty()) {
+            return;
+        }
+        if (!FirebaseSyncManager.isFirebaseConfigured(this)) {
+            return;
+        }
+        detachLiveRoomMembersListener();
+        try {
+            liveMembersListener = FirebaseFirestore.getInstance()
+                    .collection("rooms")
+                    .document(activeRoomId)
+                    .collection("members")
+                    .addSnapshotListener((snapshots, error) -> {
+                        if (error != null || snapshots == null) {
+                            return;
+                        }
+                        // 1. Upsert all remote members & delete stale local rows in Room SQLite
+                        FirestoreRealtimeSyncManager.getInstance(RoomMembersActivity.this)
+                                .syncRemoteMembersSnapshot(activeRoomId, snapshots);
+
+                        // 2. Render live remote members on screen immediately
+                        List<RoomMemberEntity> liveList = new ArrayList<>();
+                        for (DocumentSnapshot doc : snapshots.getDocuments()) {
+                            if (!doc.exists()) {
+                                continue;
+                            }
+                            String userId = safeStr(doc.getString("userId"), doc.getId());
+                            String userName = safeStr(doc.getString("userName"), "Officer");
+                            String userEmail = safeStr(doc.getString("userEmail"), "");
+                            String role = safeStr(doc.getString("role"), RoomMemberEntity.ROLE_COLLECTOR);
+                            String status = safeStr(doc.getString("status"), RoomMemberEntity.STATUS_ACTIVE);
+                            String deviceInfo = doc.getString("deviceInfo");
+                            Long joinedAtVal = doc.getLong("joinedAt");
+                            long joinedAt = joinedAtVal != null ? joinedAtVal : System.currentTimeMillis();
+
+                            liveList.add(new RoomMemberEntity(
+                                    activeRoomId,
+                                    userId,
+                                    userName,
+                                    userEmail,
+                                    role,
+                                    joinedAt,
+                                    status,
+                                    deviceInfo
+                            ));
+                        }
+                        if (!liveList.isEmpty()) {
+                            updateMembersUi(liveList);
+                        }
+                    });
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void detachLiveRoomMembersListener() {
+        if (liveMembersListener != null) {
+            try {
+                liveMembersListener.remove();
+            } catch (Exception ignored) {
+            }
+            liveMembersListener = null;
+        }
+    }
+
+    private void updateMembersUi(List<RoomMemberEntity> allMembers) {
+        List<RoomMemberEntity> pendingList = new ArrayList<>();
+        List<RoomMemberEntity> activeOrBannedList = new ArrayList<>();
+        for (RoomMemberEntity m : allMembers) {
+            if (m.isPendingApproval()) {
+                pendingList.add(m);
+            } else {
+                activeOrBannedList.add(m);
+            }
+        }
+
+        renderPendingJoinRequestsSection(pendingList);
+        adapter.setOwnerViewing(isCurrentUserRoomOwner());
+        adapter.submitList(activeOrBannedList);
+    }
+
+    private boolean isCurrentUserRoomOwner() {
+        if (sessionManager.isOwner()) {
+            return true;
+        }
+        String currentUid = sessionManager.getCurrentUserId();
+        return currentRoom != null
+                && currentUid != null
+                && currentUid.equals(currentRoom.ownerUserId);
+    }
+
+    /**
+     * Renders the prominent "Pending Join Requests" section at the top of RoomMembersActivity
+     * whenever any member has status == "PENDING_APPROVAL", showing Name, Email, Device Info,
+     * request time, and direct Approve, Reject, and Ban buttons.
+     */
+    private void renderPendingJoinRequestsSection(List<RoomMemberEntity> pendingMembers) {
+        if (cardPendingJoinRequestsSection == null || layoutPendingRequestsContainer == null) {
+            return;
+        }
+        if (pendingMembers == null || pendingMembers.isEmpty()) {
+            cardPendingJoinRequestsSection.setVisibility(View.GONE);
+            layoutPendingRequestsContainer.removeAllViews();
+            return;
+        }
+
+        cardPendingJoinRequestsSection.setVisibility(View.VISIBLE);
+        tvPendingRequestsHeader.setText("Pending Join Requests (" + pendingMembers.size() + ")");
+        layoutPendingRequestsContainer.removeAllViews();
+
+        boolean isOwner = isCurrentUserRoomOwner();
+        LayoutInflater inflater = LayoutInflater.from(this);
+
+        for (RoomMemberEntity pending : pendingMembers) {
+            View itemView = inflater.inflate(R.layout.item_room_member, layoutPendingRequestsContainer, false);
+            TextView tvName = itemView.findViewById(R.id.tvMemberName);
+            TextView tvEmailAndDate = itemView.findViewById(R.id.tvMemberEmailAndDate);
+            TextView tvRoleBadge = itemView.findViewById(R.id.tvMemberRoleBadge);
+            LinearLayout layoutActions = itemView.findViewById(R.id.layoutPendingMemberActions);
+            MaterialButton btnApprove = itemView.findViewById(R.id.btnApprovePendingMember);
+            MaterialButton btnReject = itemView.findViewById(R.id.btnRejectPendingMember);
+            MaterialButton btnBan = itemView.findViewById(R.id.btnBanPendingMember);
+
+            tvName.setText(pending.userName);
+            String emailLine = (pending.userEmail != null && !pending.userEmail.trim().isEmpty())
+                    ? "Email: " + pending.userEmail.trim()
+                    : "Email: Not provided";
+            String deviceLine = (pending.deviceInfo != null && !pending.deviceInfo.trim().isEmpty())
+                    ? "\nDevice: " + pending.deviceInfo.trim()
+                    : "";
+            String timeLine = "\nRequested: " + CurrencyFormatter.formatDateTime(pending.joinedAt);
+            tvEmailAndDate.setText(emailLine + deviceLine + timeLine);
+
+            tvRoleBadge.setText("PENDING APPROVAL");
+            tvRoleBadge.setTextColor(Color.parseColor("#B45309"));
+            tvRoleBadge.setBackgroundColor(Color.parseColor("#FEF3C7"));
+
+            if (isOwner) {
+                layoutActions.setVisibility(View.VISIBLE);
+                btnApprove.setOnClickListener(v -> showQuickApproveRolePickerDialog(pending));
+                btnReject.setOnClickListener(v -> rejectOrBanMember(pending, false));
+                btnBan.setOnClickListener(v -> rejectOrBanMember(pending, true));
+                itemView.setOnClickListener(v -> showMemberRoleActionDialog(pending));
+            } else {
+                layoutActions.setVisibility(View.GONE);
+            }
+
+            layoutPendingRequestsContainer.addView(itemView);
+        }
+    }
+
+    private void showQuickApproveRolePickerDialog(RoomMemberEntity pendingMember) {
+        if (!isCurrentUserRoomOwner()) {
+            Toast.makeText(this, "Only the Room OWNER can approve join requests.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        String[] roleOptions = new String[]{
+                "Approve as COLLECTOR (Record payments, expenses & rename folders)",
+                "Approve as AUDITOR (Read-only transparency & QR verification)"
+        };
+        new MaterialAlertDialogBuilder(this)
+                .setTitle("Approve " + pendingMember.userName)
+                .setItems(roleOptions, (dialog, which) -> {
+                    String selectedRole = (which == 1)
+                            ? RoomMemberEntity.ROLE_AUDITOR
+                            : RoomMemberEntity.ROLE_COLLECTOR;
+                    approveMember(pendingMember, selectedRole);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void refreshRoomHeader() {
         tvMembersRoomTitle.setText(sessionManager.getActiveRoomName());
         String role = sessionManager.getActiveRoomRole();
         String roleDesc;
-        if (RoomMemberEntity.ROLE_OWNER.equalsIgnoreCase(role)) {
+        if (RoomMemberEntity.ROLE_OWNER.equalsIgnoreCase(role) || isCurrentUserRoomOwner()) {
             roleDesc = "OWNER (Full Access • Security Console & Approvals)";
         } else if (RoomMemberEntity.ROLE_COLLECTOR.equalsIgnoreCase(role)) {
             roleDesc = "COLLECTOR (Record Payments, Expenses & Rename Folders)";
@@ -110,7 +319,7 @@ public class RoomMembersActivity extends BaseThemedActivity {
         }
         tvMembersMyRoleSubtitle.setText("Your Role: " + roleDesc);
         tvInviteRoomKey.setText(currentRoom != null ? currentRoom.roomKey : sessionManager.getActiveRoomKey());
-        btnChangeRoomPassword.setVisibility(sessionManager.isOwner() ? View.VISIBLE : View.GONE);
+        btnChangeRoomPassword.setVisibility(isCurrentUserRoomOwner() ? View.VISIBLE : View.GONE);
 
         if (tvRoomSecurityStatusBanner != null) {
             if (currentRoom != null) {
@@ -167,7 +376,7 @@ public class RoomMembersActivity extends BaseThemedActivity {
      * 6. Rotate 256-bit HMAC QR Signing Secret
      */
     private void showSecurityConsoleDialog() {
-        if (!sessionManager.isOwner()) {
+        if (!isCurrentUserRoomOwner()) {
             Toast.makeText(this, "Only the Room OWNER can access the Security Console.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -363,7 +572,7 @@ public class RoomMembersActivity extends BaseThemedActivity {
     }
 
     private void showMemberRoleActionDialog(RoomMemberEntity member) {
-        if (!sessionManager.isOwner()) {
+        if (!isCurrentUserRoomOwner()) {
             Toast.makeText(this, "Only the Room OWNER can manage members and approvals.", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -473,15 +682,22 @@ public class RoomMembersActivity extends BaseThemedActivity {
     }
 
     private void rejectOrBanMember(RoomMemberEntity member, boolean banPermanently) {
-        String title = banPermanently ? "Ban Member Permanently?" : "Remove Member?";
+        String title = banPermanently
+                ? "Ban Member Permanently?"
+                : (member.isPendingApproval() ? "Reject Join Request?" : "Remove Member?");
         String msg = banPermanently
                 ? "Ban " + member.userName + " from \"" + sessionManager.getActiveRoomName() + "\"? Their active session and cached QR signing secret will be revoked immediately, and future join attempts will be blocked."
-                : "Remove " + member.userName + " from \"" + sessionManager.getActiveRoomName() + "\"?";
+                : (member.isPendingApproval()
+                    ? "Reject and remove " + member.userName + "'s join request from \"" + sessionManager.getActiveRoomName() + "\"?"
+                    : "Remove " + member.userName + " from \"" + sessionManager.getActiveRoomName() + "\"?");
+        String positiveLabel = banPermanently
+                ? "Ban Permanently"
+                : (member.isPendingApproval() ? "Reject Request" : "Remove");
         new MaterialAlertDialogBuilder(this)
                 .setTitle(title)
                 .setMessage(msg)
                 .setNegativeButton("Cancel", null)
-                .setPositiveButton(banPermanently ? "Ban Permanently" : "Remove", (d, w) -> repository.rejectOrBanMember(
+                .setPositiveButton(positiveLabel, (d, w) -> repository.rejectOrBanMember(
                         activeRoomId,
                         member.userId,
                         member.userName,
@@ -505,13 +721,33 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 .show();
     }
 
+    private static String safeStr(String value, String fallback) {
+        return (value != null && !value.trim().isEmpty()) ? value.trim() : fallback;
+    }
+
     private static class MembersAdapter extends RecyclerView.Adapter<MembersAdapter.MemberViewHolder> {
 
         private final List<RoomMemberEntity> items = new ArrayList<>();
         private final OnMemberClickListener listener;
+        private final OnMemberClickListener approveListener;
+        private final OnMemberClickListener rejectListener;
+        private final OnMemberClickListener banListener;
+        private boolean isOwnerViewing = false;
 
-        MembersAdapter(OnMemberClickListener listener) {
+        MembersAdapter(
+                OnMemberClickListener listener,
+                OnMemberClickListener approveListener,
+                OnMemberClickListener rejectListener,
+                OnMemberClickListener banListener
+        ) {
             this.listener = listener;
+            this.approveListener = approveListener;
+            this.rejectListener = rejectListener;
+            this.banListener = banListener;
+        }
+
+        void setOwnerViewing(boolean ownerViewing) {
+            this.isOwnerViewing = ownerViewing;
         }
 
         void submitList(List<RoomMemberEntity> newList) {
@@ -541,14 +777,28 @@ public class RoomMembersActivity extends BaseThemedActivity {
                 holder.tvRoleBadge.setText("PENDING APPROVAL");
                 holder.tvRoleBadge.setTextColor(Color.parseColor("#B45309"));
                 holder.tvRoleBadge.setBackgroundColor(Color.parseColor("#FEF3C7"));
+                if (isOwnerViewing && holder.layoutPendingActions != null) {
+                    holder.layoutPendingActions.setVisibility(View.VISIBLE);
+                    holder.btnApprove.setOnClickListener(v -> approveListener.onMemberClicked(m));
+                    holder.btnReject.setOnClickListener(v -> rejectListener.onMemberClicked(m));
+                    holder.btnBan.setOnClickListener(v -> banListener.onMemberClicked(m));
+                } else if (holder.layoutPendingActions != null) {
+                    holder.layoutPendingActions.setVisibility(View.GONE);
+                }
             } else if (m.isBanned()) {
                 holder.tvRoleBadge.setText("BANNED");
                 holder.tvRoleBadge.setTextColor(Color.parseColor("#B91C1C"));
                 holder.tvRoleBadge.setBackgroundColor(Color.parseColor("#FEE2E2"));
+                if (holder.layoutPendingActions != null) {
+                    holder.layoutPendingActions.setVisibility(View.GONE);
+                }
             } else {
                 holder.tvRoleBadge.setText(m.role);
                 holder.tvRoleBadge.setTextColor(Color.parseColor("#1E3A8A"));
                 holder.tvRoleBadge.setBackgroundColor(Color.parseColor("#E8F0FE"));
+                if (holder.layoutPendingActions != null) {
+                    holder.layoutPendingActions.setVisibility(View.GONE);
+                }
             }
             holder.itemView.setOnClickListener(v -> listener.onMemberClicked(m));
         }
@@ -562,12 +812,20 @@ public class RoomMembersActivity extends BaseThemedActivity {
             final TextView tvName;
             final TextView tvEmailAndDate;
             final TextView tvRoleBadge;
+            final LinearLayout layoutPendingActions;
+            final MaterialButton btnApprove;
+            final MaterialButton btnReject;
+            final MaterialButton btnBan;
 
             MemberViewHolder(@NonNull View itemView) {
                 super(itemView);
                 tvName = itemView.findViewById(R.id.tvMemberName);
                 tvEmailAndDate = itemView.findViewById(R.id.tvMemberEmailAndDate);
                 tvRoleBadge = itemView.findViewById(R.id.tvMemberRoleBadge);
+                layoutPendingActions = itemView.findViewById(R.id.layoutPendingMemberActions);
+                btnApprove = itemView.findViewById(R.id.btnApprovePendingMember);
+                btnReject = itemView.findViewById(R.id.btnRejectPendingMember);
+                btnBan = itemView.findViewById(R.id.btnBanPendingMember);
             }
         }
     }

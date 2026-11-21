@@ -271,79 +271,92 @@ public final class FirebaseSyncManager {
             FirebaseFirestore firestore = FirebaseFirestore.getInstance();
             FirebaseStorage storage = FirebaseStorage.getInstance();
             AppDatabase db = AppDatabase.getInstance(appCtx);
-            String defaultRoomId = UserSessionManager.getInstance(appCtx).getActiveRoomId();
+            UserSessionManager session = UserSessionManager.getInstance(appCtx);
+            session.syncFromFirebaseAuthIfAvailable();
+            String currentUserId = session.getCurrentUserId();
+            String defaultRoomId = session.getActiveRoomId();
 
             // 1. Process queued folder/record deletions first
             flushQueuedDeletions(appCtx, firestore);
 
-            // 2. Sync all local Rooms & Room Members so newly created rooms, security flags, and role assignments exist in Firestore
+            // 2. Sync local Rooms & Room Members safely according to ownership
             List<RoomEntity> rooms = db.roomDao().getAllRoomsSync();
             for (RoomEntity room : rooms) {
-                Map<String, Object> roomDoc = new HashMap<>();
-                roomDoc.put("roomId", room.roomId);
-                roomDoc.put("roomName", room.roomName);
-                roomDoc.put("roomKey", room.roomKey);
-                roomDoc.put("roomPasswordHash", room.roomPasswordHash);
-                roomDoc.put("roomSalt", room.roomSalt != null ? room.roomSalt : "");
-                roomDoc.put("roomSigningSecret", room.roomSigningSecret);
-                roomDoc.put("ownerUserId", room.ownerUserId);
-                roomDoc.put("ownerName", room.ownerName);
-                roomDoc.put("isLocked", room.isLocked);
-                roomDoc.put("requireApproval", room.requireApproval);
-                roomDoc.put("keyExpiresAt", room.keyExpiresAt);
-                roomDoc.put("failedJoinCount", room.failedJoinCount);
-                roomDoc.put("lockoutUntil", room.lockoutUntil);
-                roomDoc.put("createdAt", room.createdAt);
-                roomDoc.put("updatedAt", room.updatedAt);
+                boolean isOwnerOfRoom = currentUserId != null && currentUserId.equals(room.ownerUserId);
+                if (isOwnerOfRoom) {
+                    Map<String, Object> roomDoc = new HashMap<>();
+                    roomDoc.put("roomId", room.roomId);
+                    roomDoc.put("roomName", room.roomName);
+                    roomDoc.put("roomKey", room.roomKey);
+                    roomDoc.put("roomPasswordHash", room.roomPasswordHash);
+                    roomDoc.put("roomSalt", room.roomSalt != null ? room.roomSalt : "");
+                    roomDoc.put("roomSigningSecret", room.roomSigningSecret);
+                    roomDoc.put("ownerUserId", room.ownerUserId);
+                    roomDoc.put("ownerName", room.ownerName);
+                    roomDoc.put("isLocked", room.isLocked);
+                    roomDoc.put("requireApproval", room.requireApproval);
+                    roomDoc.put("keyExpiresAt", room.keyExpiresAt);
+                    roomDoc.put("failedJoinCount", 0);
+                    roomDoc.put("lockoutUntil", 0L);
+                    roomDoc.put("createdAt", room.createdAt);
+                    roomDoc.put("updatedAt", room.updatedAt);
 
-                Tasks.await(
-                        firestore.collection("rooms")
-                                .document(room.roomId)
-                                .set(roomDoc, SetOptions.merge()),
-                        20,
-                        TimeUnit.SECONDS
-                );
+                    try {
+                        Tasks.await(
+                                firestore.collection("rooms")
+                                        .document(room.roomId)
+                                        .set(roomDoc, SetOptions.merge()),
+                                20,
+                                TimeUnit.SECONDS
+                        );
+                    } catch (Exception ignored) {
+                    }
 
-                // Isolate secrets in rooms/{roomId}/private/security
-                Map<String, Object> securityDoc = new HashMap<>();
-                securityDoc.put("roomPasswordHash", room.roomPasswordHash);
-                securityDoc.put("roomSalt", room.roomSalt != null ? room.roomSalt : "");
-                securityDoc.put("roomSigningSecret", room.roomSigningSecret);
-                securityDoc.put("updatedAt", room.updatedAt);
-                try {
-                    Tasks.await(
-                            firestore.collection("rooms")
-                                    .document(room.roomId)
-                                    .collection("private")
-                                    .document("security")
-                                    .set(securityDoc, SetOptions.merge()),
-                            15,
-                            TimeUnit.SECONDS
-                    );
-                } catch (Exception ignored) {
+                    // Isolate secrets in rooms/{roomId}/private/security
+                    Map<String, Object> securityDoc = new HashMap<>();
+                    securityDoc.put("roomPasswordHash", room.roomPasswordHash);
+                    securityDoc.put("roomSalt", room.roomSalt != null ? room.roomSalt : "");
+                    securityDoc.put("roomSigningSecret", room.roomSigningSecret);
+                    securityDoc.put("updatedAt", room.updatedAt);
+                    try {
+                        Tasks.await(
+                                firestore.collection("rooms")
+                                        .document(room.roomId)
+                                        .collection("private")
+                                        .document("security")
+                                        .set(securityDoc, SetOptions.merge()),
+                                15,
+                                TimeUnit.SECONDS
+                        );
+                    } catch (Exception ignored) {
+                    }
                 }
 
-                List<RoomMemberEntity> members = db.roomMemberDao().getMembersByRoomSync(room.roomId);
-                for (RoomMemberEntity m : members) {
-                    Map<String, Object> memberDoc = new HashMap<>();
-                    memberDoc.put("roomId", m.roomId);
-                    memberDoc.put("userId", m.userId);
-                    memberDoc.put("userName", m.userName);
-                    memberDoc.put("userEmail", m.userEmail);
-                    memberDoc.put("role", m.role);
-                    memberDoc.put("status", m.status != null ? m.status : RoomMemberEntity.STATUS_ACTIVE);
-                    memberDoc.put("deviceInfo", m.deviceInfo != null ? m.deviceInfo : "");
-                    memberDoc.put("joinedAt", m.joinedAt);
-
-                    Tasks.await(
-                            firestore.collection("rooms")
+                // Sync current user's member document if not already present remotely (or if owner)
+                if (currentUserId != null) {
+                    RoomMemberEntity selfMember = db.roomMemberDao().findMemberSync(room.roomId, currentUserId);
+                    if (selfMember != null) {
+                        try {
+                            DocumentReference selfRef = firestore.collection("rooms")
                                     .document(room.roomId)
                                     .collection("members")
-                                    .document(m.userId)
-                                    .set(memberDoc, SetOptions.merge()),
-                            15,
-                            TimeUnit.SECONDS
-                    );
+                                    .document(currentUserId);
+                            DocumentSnapshot remoteSelf = Tasks.await(selfRef.get(), 10, TimeUnit.SECONDS);
+                            if (isOwnerOfRoom || remoteSelf == null || !remoteSelf.exists()) {
+                                Map<String, Object> memberDoc = new HashMap<>();
+                                memberDoc.put("roomId", selfMember.roomId);
+                                memberDoc.put("userId", selfMember.userId);
+                                memberDoc.put("userName", selfMember.userName);
+                                memberDoc.put("userEmail", selfMember.userEmail);
+                                memberDoc.put("role", isOwnerOfRoom ? RoomMemberEntity.ROLE_OWNER : selfMember.role);
+                                memberDoc.put("status", isOwnerOfRoom ? RoomMemberEntity.STATUS_ACTIVE : selfMember.status);
+                                memberDoc.put("deviceInfo", selfMember.deviceInfo != null ? selfMember.deviceInfo : "");
+                                memberDoc.put("joinedAt", selfMember.joinedAt);
+                                Tasks.await(selfRef.set(memberDoc, SetOptions.merge()), 15, TimeUnit.SECONDS);
+                            }
+                        } catch (Exception ignored) {
+                        }
+                    }
                 }
             }
 

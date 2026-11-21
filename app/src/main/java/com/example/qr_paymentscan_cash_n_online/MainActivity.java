@@ -61,7 +61,9 @@ public class MainActivity extends BaseThemedActivity {
     private LinearLayout layoutEmptySections;
     private View rootView;
     private LiveData<List<SectionSummary>> currentRootSectionsLiveData;
+    private LiveData<com.example.qr_paymentscan_cash_n_online.data.RoomMemberEntity> currentMemberLiveData;
     private String observedRoomId = null;
+    private String observedMemberRoomId = null;
 
     // Live Camera QR Scanner Launcher
     private final ActivityResultLauncher<ScanOptions> qrCameraScanLauncher =
@@ -214,6 +216,25 @@ public class MainActivity extends BaseThemedActivity {
 
     private void rebindRootSectionsObserverIfNeeded() {
         String activeRoomId = sessionManager.getActiveRoomId();
+        if (activeRoomId != null && !activeRoomId.equals(observedMemberRoomId)) {
+            if (currentMemberLiveData != null) {
+                currentMemberLiveData.removeObservers(this);
+            }
+            observedMemberRoomId = activeRoomId;
+            currentMemberLiveData = repository.observeCurrentMemberInRoom(activeRoomId);
+            currentMemberLiveData.observe(this, member -> {
+                if (member != null) {
+                    boolean wasPending = sessionManager.isPendingApproval();
+                    sessionManager.updateActiveRoomRole(member.role);
+                    sessionManager.updateActiveRoomMemberStatus(member.status, null);
+                    refreshRoomAndRoleUi();
+                    if (wasPending && member.isActive()) {
+                        Snackbar.make(rootView, "Your join request has been approved!", Snackbar.LENGTH_LONG).show();
+                        rebindRootSectionsObserverIfNeeded();
+                    }
+                }
+            });
+        }
         if (sessionManager.isPendingApproval()) {
             if (currentRootSectionsLiveData != null) {
                 currentRootSectionsLiveData.removeObservers(this);
